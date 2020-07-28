@@ -121,9 +121,9 @@ def get_patch_3d(args):
     mask[np.isnan(mask) == True] = 0
     
     if 'hyperbolic3d' in imgname:
-        segt = [(0, 250)]
-        segx = [(0, 80)]
-        segy = [(0, 80)]
+        segt = [(0, 256), (128, 384), (256, 512)]
+        segx = [(0, 128)]
+        segy = [(0, 128)]
     elif 'Marmousi' in imgname:
         segt = [(0, 104), (100, 204), (196, 300)]
         segx = [(0, 132), (124, 256)]

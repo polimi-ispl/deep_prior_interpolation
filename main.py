@@ -29,10 +29,9 @@ class Training:
         self.args = args
         self.dtype = dtype
         self.outpath = outpath
-        self.lossfunc = torch.nn.L1Loss().type(self.dtype)
+        self.lossfunc = torch.nn.MSELoss().type(self.dtype)
         self.elapsed = None
         self.iiter = 0
-        self.saving_interval = 0
         self.loss_min = self.args.loss_max
         self.outchannel = args.imgchannel
         self.history = History([], [], [])
@@ -64,7 +63,7 @@ class Training:
         self.additional_noise_tensor = self.input_tensor.detach().clone()
         print(colored('The shape of input noise is %s.\n' % str(self.input_tensor.shape), 'yellow'))
     
-    def build_model(self):
+    def build_model(self, netpath=None):
         if self.args.datadim in ['2d', '2.5d']:
             self.net = MulResUnet(num_input_channels=self.args.inputdepth,
                                   num_output_channels=self.outchannel,
@@ -77,18 +76,31 @@ class Training:
                                   act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
                                   ).type(self.dtype)
         else:
-            self.net = MulResUnet3D(num_input_channels=self.args.inputdepth,
-                                    num_output_channels=self.outchannel,
-                                    num_channels_down=self.args.filters,
-                                    num_channels_up=self.args.filters,
-                                    num_channels_skip=self.args.skip,
-                                    upsample_mode=self.args.upsample,  # default is bilinear
-                                    need_sigmoid=self.args.need_sigmoid,
-                                    need_bias=True,
-                                    act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
-                                    ).type(self.dtype)
-        
-        u.init_weights(self.net, self.args.inittype, self.args.initgain)
+            if self.args.net == 'load':
+                self.net = MulResUnet3D(num_input_channels=self.args.inputdepth,
+                                        num_output_channels=self.outchannel,
+                                        num_channels_down=self.args.filters,
+                                        num_channels_up=self.args.filters,
+                                        num_channels_skip=self.args.skip,
+                                        upsample_mode=self.args.upsample,  # default is bilinear
+                                        need_sigmoid=self.args.need_sigmoid,
+                                        need_bias=True,
+                                        act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                                        )
+                self.net.load_state_dict(torch.load(netpath))
+                self.net = self.net.type(self.dtype)
+            else:
+                self.net = MulResUnet3D(num_input_channels=self.args.inputdepth,
+                                        num_output_channels=self.outchannel,
+                                        num_channels_down=self.args.filters,
+                                        num_channels_up=self.args.filters,
+                                        num_channels_skip=self.args.skip,
+                                        upsample_mode=self.args.upsample,  # default is bilinear
+                                        need_sigmoid=self.args.need_sigmoid,
+                                        need_bias=True,
+                                        act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                                        ).type(self.dtype)
+                u.init_weights(self.net, self.args.inittype, self.args.initgain)
         self.parameters = u.get_params('net', self.net, self.input_tensor)
         self.num_params = sum(np.prod(list(p.size())) for p in self.net.parameters())
     
@@ -131,7 +143,8 @@ class Training:
         total_loss.backward()
         
         self.history.loss.append(total_loss.item())
-        self.history.snr.append(snr_torch(self.img_tensor, output_tensor).item())
+        self.history.snr.append(snr_torch(self.img_tensor, 
+            output_tensor * (1 - self.mask_tensor) + self.img_tensor * self.mask_tensor).item())
         self.history.pcorr.append(
             pcorr(self.img_tensor * (1 - self.mask_tensor), output_tensor * (1 - self.mask_tensor)).item())
         
@@ -152,14 +165,15 @@ class Training:
             else:
                 self.out_img = u.torch_to_np(output_tensor).squeeze()
             # saving the intermediate output. if don't want to save anything, set save_every larger than epoches
-            if self.iiter > 0 and self.saving_interval >= self.args.save_every:
-                np.save(os.path.join(self.outpath, self.image_name + '_' + str(self.iiter) + '.npy'),
-                        self.out_img)
-                
-                self.saving_interval = 0
+        if self.iiter in range(0, self.args.epochs, self.args.save_every):
+            if len(output_tensor.shape) <= 4:
+                out_img = u.torch_to_np(output_tensor).transpose(1, 2, 0)
+            else:
+                out_img = u.torch_to_np(output_tensor).squeeze()
+            np.save(os.path.join(self.outpath, self.image_name + '_' + str(self.iiter) + '.npy'),
+                    out_img)
         
         self.iiter += 1
-        self.saving_interval += 1
         
         return total_loss
     
@@ -224,11 +238,14 @@ def main() -> int:
     
     patches_list = get_patch(args)
     
-    for patch in patches_list:
+    for i, patch in enumerate(patches_list):
         imgshape = patch['img'].shape
         print(colored('The image shape is %s ' % (imgshape,), 'green'))
         T.build_input(imgshape)
-        T.build_model()
+        if args.netdir:
+            T.build_model(netpath=args.netdir[i])
+        else:
+            T.build_model()
         T.load_data(patch)
         T.optimize()
         T.save_result()

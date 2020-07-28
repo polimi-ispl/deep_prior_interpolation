@@ -24,6 +24,8 @@ def parse_main_arguments():
                               of the slices of the 3D data.')
 
     # network design
+    parser.add_argument('--net', type=str, required=False, default='multiunet3d',
+                        help='The architecture |multiunet, load, multiunet3d|')
     parser.add_argument('--gpu', type=int, required=False, default=-1,
                         help='GPU to use (lowest memory usage based)')
     parser.add_argument('--activation', type=str, default='LeakyReLU', required=False,
@@ -43,6 +45,8 @@ def parse_main_arguments():
     parser.add_argument('--initgain', type=float, required=False, default=0.02,
                         help='Initialization scaling factor for normal, xavier and orthogonal.')
     parser.add_argument('--savemodel', action='store_true', help='If save the model')
+    parser.add_argument('--netdir', nargs='+', type=str, required=False, default='',
+                        help='The path of save checkpoint files, note that It should have the same number of patches')
     
     # training parameter
     parser.add_argument('--epochs', '-e', type=int, required=False, default=2001,

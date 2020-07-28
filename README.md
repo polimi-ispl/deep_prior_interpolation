@@ -59,14 +59,13 @@ This python project is organized as follows:
 Here we report the example tests included in the paper.
 Results have been obtained as follows:
    
- - **Simple 3D hyperbolic data**: we show how our method works when interpolating both
- regular and irregular data showing simple hyperbolic events.
+ - **Simple 3D hyperbolic data**: we show how our method works when interpolating irregular data showing simple hyperbolic events.
  These simulations can be run with:
      ```
-     # irregular subsampling
-     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_irregular_066.npy --datadim 3d --gain 20 --upsample trilinear --epochs 3000
-     # regular subsampling
-     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_regular_066.npy --datadim 3d --gain 50 --upsample trilinear --epochs 3000
+     # Train from scratch
+     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_irregular_66_shot2.npy --datadim 3d --gain 40 --upsample nearest --epochs 3000
+     # Initial network using parameters from previous shot gather
+     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_irregular_66_shot1.npy --datadim 3d --gain 40 --upsample nearest --epochs 3000 --net load 
      ```
 
  - **MultiRes UNet 2D vs. 3D kernels**: we show the improvements obtained by
