@@ -1,6 +1,6 @@
 # Unsupervised 3D Seismic Data Reconstruction Based On Deep Prior
 
-This reposittory contains codes and examples of the related paper submitted to
+This repository contains codes and examples of the related paper submitted to
 IEEE Geoscience and Remote Sensing Letters (id. GRSL-00712-2020).
 
 #### Authors
@@ -50,10 +50,10 @@ Then, activate it with `source activate dpi` before running any example.<br>
 
 This python project is organized as follows:
  - `main.py` is the main script that actually does the interpolation
- - `parameter.py` contains the run options that the main will parse as shell arguments
- - `architectures.py` contains pytorch implementations of the networks and loss functions
- - `data.py` contains some data management utilities
- - `utils.py` contains some general purpose utilities
+ - `parameter.py` contains the run options that the main will parse as shell arguments. Check it out!
+ - `architectures` contains pytorch implementations of the networks and loss functions
+ - `data.py` contains data management utilities, such as data patch extraction.
+ - `utils` contains some general purpose utilities
 
 ## Usage Examples
 Here we report the example tests included in the paper.
@@ -76,6 +76,10 @@ Results have been obtained as follows:
      python main.py --imgname marmousi.npy --maskname marmousi_regular_050.npy --datadim 2.5d --gain 1e8 --upsample bilinear --epochs 2000 --slice YT --imgchannel 4     
      # fully 3D
      python main.py --imgname marmousi.npy --maskname marmousi_regular_050.npy --datadim 3d --gain 1e8 --upsample nearest --epochs 2000
+     ```
+   New marmousi3d with higher nbl and airblade (to introduce multiples):
+     ```
+     python main.py --imgdir ./data/marmousi3d/ --outdir ./results/marmousi3d/ --imgname original.npy --maskname streamer.npy --gain 1e3 --upsample trilinear --datadim 3d --gpu 0
      ```
    
  - **Netherlands F3 Field data**:
