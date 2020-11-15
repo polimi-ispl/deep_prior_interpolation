@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from collections import OrderedDict
 
 
 def add_module(self, module):
@@ -44,6 +45,27 @@ class Concat(nn.Module):
     
     def __len__(self):
         return len(self._modules)
+
+
+def concat(inputs):
+    inputs_shapes2 = [x.shape[2] for x in inputs]
+    inputs_shapes3 = [x.shape[3] for x in inputs]
+    
+    if np.all(np.array(inputs_shapes2) == min(inputs_shapes2)) and np.all(
+            np.array(inputs_shapes3) == min(inputs_shapes3)):
+        inputs_ = inputs
+    else:
+        target_shape2 = min(inputs_shapes2)
+        target_shape3 = min(inputs_shapes3)
+        
+        inputs_ = []
+        for inp in inputs:
+            diff2 = (inp.size(2) - target_shape2) // 2
+            diff3 = (inp.size(3) - target_shape3) // 2
+            inputs_.append(
+                inp[:, :, diff2: diff2 + target_shape2, diff3:diff3 + target_shape3])
+    
+    return torch.cat(inputs_, dim=1)
 
 
 def act(act_fun='LeakyReLU'):
@@ -112,7 +134,7 @@ class MultiResBlock(nn.Module):
         out1 = self.conv3x3(input)
         out2 = self.conv5x5(out1)
         out3 = self.conv7x7(out2)
-        out = self.bn1(torch.cat([out1, out2, out3], dim=1))
+        out = self.bn1(torch.cat([out1, out2, out3], axis=1))
         out = torch.add(self.shortcut(input), out)
         out = self.bn2(self.accfun(out))
         return out
@@ -141,6 +163,36 @@ class PathRes(nn.Module):
                                                                 self.network[i * 3 + 1](out))))
         
         return out
+
+
+class GridAttentionBlock(nn.Module):
+    def __init__(self, F_g, F_l, F_int):
+        super(GridAttentionBlock, self).__init__()
+        self.W_g = nn.Sequential(
+            conv(F_g, F_int, 1, 1),
+            bn(F_int)
+        )
+        
+        self.W_x = nn.Sequential(
+            conv(F_l, F_int, 3, 2),
+            bn(F_int)
+        )
+        
+        self.psi = nn.Sequential(
+            conv(F_int, 1, 1, 1),
+            nn.Sigmoid(),
+            nn.Upsample(scale_factor=2, mode='bilinear')
+        )
+        
+        self.relu = nn.ReLU(inplace=True)
+    
+    def forward(self, g, x):
+        g1 = self.W_g(g)
+        x1 = self.W_x(x)
+        psi = self.relu(g1 + x1)
+        psi = self.psi(psi)
+        
+        return x * psi
 
 
 def MulResUnet(
@@ -223,6 +275,232 @@ def MulResUnet(
         model.add(nn.Sigmoid())
     
     return model
+
+
+class AttMulResUnet2D(nn.Module):
+    """
+        The attention multi-resolution network
+    """
+    
+    def __init__(self, num_input_channels=1, num_output_channels=3,
+                 num_channels_down=[16, 32, 64, 128, 256],
+                 alpha=1.67, need_sigmoid=False, need_bias=True,
+                 upsample_mode='nearest', act_fun='LeakyReLU') -> None:
+        """
+            The 3D multi-resolution Unet
+        Arguments:
+            num_input_channels (int) -- The channels of the input data.
+            num_output_channels (int) -- The channels of the output data.
+            num_channels_down (list) -- The channels of differnt layer in the encoder of networks.
+            num_channels_up (list) -- The channels of differnt layer in the decoder of networks.
+            num_channels_skip (list) -- The channels of path residual block corresponding to different layer.
+            alpha (float) -- the value multiplying to the number of filters.
+            need_sigmoid (Bool) -- if add the sigmoid layer in the last of decoder.
+            need_bias (Bool) -- If add the bias in every convolutional filters.
+            upsample_mode (str) -- The type of upsampling in the decoder, including 'bilinear' and 'nearest'.
+            act_fun (str) -- The activate function, including LeakyReLU, ReLU, Tanh, ELU.
+        """
+        super(AttMulResUnet2D, self).__init__()
+        n_scales = len(num_channels_down)
+        
+        if not (isinstance(upsample_mode, list) or isinstance(upsample_mode, tuple)):
+            upsample_mode = [upsample_mode] * n_scales
+        
+        input_depths = [num_input_channels]
+        
+        for i in range(n_scales):
+            mrb = MultiResBlock(num_channels_down[i], input_depths[-1])
+            input_depths.append(mrb.out_dim)
+            setattr(self, 'down_mb%d' % (i + 1), mrb)
+        
+        for i in range(1, n_scales):
+            setattr(self, 'down%d' % i, nn.Sequential(*[
+                conv(input_depths[i], input_depths[i], 3, stride=2, bias=need_bias),
+                bn(input_depths[i]),
+                act(act_fun)
+            ]))
+            mrb = MultiResBlock(num_channels_down[-(i + 1)], input_depths[-i] + input_depths[-(i + 1)])
+            setattr(self, 'up_mb%d' % i, mrb)
+            setattr(self, 'att%d' % i,
+                    GridAttentionBlock(input_depths[-i],
+                                       input_depths[-(i + 1)], num_channels_down[-i]))
+            setattr(self, 'up%d' % i, nn.Upsample(scale_factor=2, mode=upsample_mode[i]))
+        if need_sigmoid:
+            self.outconv = nn.Sequential(*[
+                conv(input_depths[1], num_output_channels, 1, 1, bias=need_bias),
+                nn.Sigmoid()])
+        else:
+            self.outconv = conv(input_depths[1], num_output_channels, 1, 1, bias=need_bias)
+    
+    def forward(self, inp):
+        x1 = self.down_mb1(inp)
+        x2 = self.down_mb2(self.down1(x1))
+        x3 = self.down_mb3(self.down2(x2))
+        x4 = self.down_mb4(self.down3(x3))
+        x5 = self.down_mb5(self.down4(x4))
+        
+        x4 = self.up_mb1(concat([self.att1(x5, x4), self.up1(x5)]))
+        x3 = self.up_mb2(concat([self.att2(x4, x3), self.up2(x4)]))
+        x2 = self.up_mb3(concat([self.att3(x3, x2), self.up3(x3)]))
+        x1 = self.up_mb4(concat([self.att4(x2, x1), self.up4(x2)]))
+        
+        return self.outconv(x1)
+
+
+class ChannelGata(nn.Module):
+    """
+        The channel block. process the feature extracted by encoder and decoder.
+        (Convolutional block attention module)
+        referenc (squeeze-and-excitation network)
+    """
+    
+    def __init__(self, f_x, reduction_ratio=4):
+        super(ChannelGata, self).__init__()
+        self.maxpool = nn.AdaptiveMaxPool2d((1, 1))
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.psi = nn.Sequential(
+            nn.Conv2d(f_x, f_x // reduction_ratio, kernel_size=1, stride=1, padding=0, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(f_x // reduction_ratio, f_x, kernel_size=1, stride=1, padding=0, bias=True))
+        self.sigmoid = nn.Sigmoid()
+    
+    def forward(self, x):
+        x_max = self.psi(self.maxpool(x))
+        x_avg = self.psi(self.avgpool(x))
+        return x * self.sigmoid(x_max + x_avg)
+
+
+class ChannelPool(nn.Module):
+    def forward(self, x):
+        return torch.cat((torch.max(x, 1)[0].unsqueeze(1), torch.mean(x, 1).unsqueeze(1)), dim=1)
+
+
+class SpatialGate(nn.Module):
+    """
+        The channel block. process the feature extracted by encoder and decoder.
+        (Convolutional block attention module)
+        referenc (squeeze-and-excitation network)
+    """
+    
+    def __init__(self, f_x, kernel_size=7):
+        super(SpatialGate, self).__init__()
+        kernel_size = kernel_size
+        self.compress = ChannelPool()
+        self.spatial = nn.Sequential(
+            nn.Conv2d(2, 1, kernel_size=kernel_size, stride=1, padding=(kernel_size - 1) // 2, bias=True),
+            nn.BatchNorm2d(1),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        x_compress = self.compress(x)
+        x_out = self.spatial(x_compress)
+        return x * x_out
+
+
+class CBAM(nn.Module):
+    """
+        The convolutional block attention module
+    """
+    
+    def __init__(self, f_x, reduction_ratio=16, kernel_size=7):
+        super(CBAM, self).__init__()
+        self.ChannelGate = ChannelGata(f_x, reduction_ratio)
+        self.SpatialGate = SpatialGate(f_x, kernel_size=kernel_size)
+    
+    def forward(self, x):
+        return self.SpatialGate(self.ChannelGate(x))
+
+
+class Identidy(nn.Module):
+    def __init__(self):
+        super(Identidy, self).__init__()
+    
+    def forward(self, x):
+        return x
+
+
+def attention(f_x, kind='unet', reduce_ratio=8, kernel_size=7):
+    if kind == 'cbam':
+        return CBAM(f_x, reduction_ratio=reduce_ratio, kernel_size=kernel_size)
+    else:
+        return Identidy()
+
+
+class AttentionUnet(nn.Module):
+    def __init__(self, fin=3, fout=1, act_fun='LeakyReLU', need_bias=True, att='cbam', reduce_ratio=4):
+        super(AttentionUnet, self).__init__()
+        self.downblock1 = nn.Sequential(OrderedDict({
+            'conv1': conv2dbn(fin, 16, 3, 1, need_bias, act_fun),
+            'conv2': conv2dbn(16, 16, 3, 1, need_bias, act_fun),
+            'att1' : attention(16, kind=att, reduce_ratio=reduce_ratio, kernel_size=7)
+        }))  # B X 16 X H X W
+        self.downblock2 = nn.Sequential(OrderedDict({
+            'downconv': nn.MaxPool2d(2, 2),
+            'conv1'   : conv2dbn(16, 32, 3, 1, need_bias, act_fun),
+            'conv2'   : conv2dbn(32, 32, 3, 1, need_bias, act_fun),
+            'att2'    : attention(32, kind=att, reduce_ratio=reduce_ratio, kernel_size=7)
+        }))  # B X 32 X H/2 X W/2
+        self.downblock3 = nn.Sequential(OrderedDict({
+            'downconv': nn.MaxPool2d(2, 2),
+            'conv1'   : conv2dbn(32, 64, 3, 1, need_bias, act_fun),
+            'conv2'   : conv2dbn(64, 64, 3, 1, need_bias, act_fun),
+            'att3'    : attention(64, kind=att, reduce_ratio=reduce_ratio, kernel_size=7)
+        }))  # B X 64 X H/4 X W/4
+        self.downblock4 = nn.Sequential(OrderedDict({
+            'downconv': nn.MaxPool2d(2, 2),
+            'conv1'   : conv2dbn(64, 128, 3, 1, need_bias, act_fun),
+            'conv2'   : conv2dbn(128, 128, 3, 1, need_bias, act_fun),
+            'att4'    : attention(128, kind=att, reduce_ratio=reduce_ratio, kernel_size=7)
+        }))  # B X 128 X H/8 X W/8
+        self.bottleneck = nn.Sequential(OrderedDict({
+            'downconv': nn.MaxPool2d(2, 2),
+            'conv1'   : conv2dbn(128, 256, 3, 1, need_bias, act_fun),
+            'conv2'   : conv2dbn(256, 256, 3, 1, need_bias, act_fun),
+            'upconv'  : nn.Upsample(scale_factor=2, mode='bilinear')
+        }))  # B X 128 X H/8 X W/8
+        
+        self.upblock4 = nn.Sequential(OrderedDict({
+            'conv1' : conv2dbn(256 + 128, 128, 3, 1, need_bias, act_fun),
+            'conv2' : conv2dbn(128, 128, 3, 1, need_bias, act_fun),
+            'att5'  : attention(128, kind=att, reduce_ratio=reduce_ratio, kernel_size=7),
+            'upconv': nn.Upsample(scale_factor=2, mode='bilinear')
+        }))
+        
+        self.upblock3 = nn.Sequential(OrderedDict({
+            'conv1' : conv2dbn(128 + 64, 64, 3, 1, need_bias, act_fun),
+            'conv2' : conv2dbn(64, 64, 3, 1, need_bias, act_fun),
+            'att6'  : attention(64, kind=att, reduce_ratio=reduce_ratio, kernel_size=7),
+            'upconv': nn.Upsample(scale_factor=2, mode='bilinear')
+        }))
+        
+        self.upblock2 = nn.Sequential(OrderedDict({
+            'conv1' : conv2dbn(64 + 32, 32, 3, 1, need_bias, act_fun),
+            'conv2' : conv2dbn(32, 32, 3, 1, need_bias, act_fun),
+            'att7'  : attention(32, kind=att, reduce_ratio=reduce_ratio, kernel_size=7),
+            'upconv': nn.Upsample(scale_factor=2, mode='bilinear'),
+        }))
+        
+        self.upblock1 = nn.Sequential(OrderedDict({
+            'conv1': conv2dbn(32 + 16, 16, 3, 1, need_bias, act_fun),
+            'conv2': conv2dbn(16, 16, 3, 1, need_bias, act_fun),
+            'att8' : attention(16, kind=att, reduce_ratio=reduce_ratio, kernel_size=7)
+        }))
+        
+        self.outblock = nn.Conv2d(16, fout, 3, 1, 1)
+    
+    def forward(self, x):
+        down1 = self.downblock1(x)
+        down2 = self.downblock2(down1)
+        down3 = self.downblock3(down2)
+        down4 = self.downblock4(down3)
+        up4 = self.bottleneck(down4)
+        up3 = self.upblock4(torch.cat((down4, up4), dim=1))
+        up2 = self.upblock3(torch.cat((down3, up3), dim=1))
+        up1 = self.upblock2(torch.cat((down2, up2), dim=1))
+        out = self.outblock(self.upblock1(torch.cat((down1, up1), dim=1)))
+        
+        return out
 
 
 # For the 3D network
@@ -309,7 +587,7 @@ class MultiRes3dBlock(nn.Module):
         out1 = self.conv3x3(input)
         out2 = self.conv5x5(out1)
         out3 = self.conv7x7(out2)
-        out = self.bn1(torch.cat([out1, out2, out3], dim=1))
+        out = self.bn1(torch.cat([out1, out2, out3], axis=1))
         out = torch.add(self.shortcut(input), out)
         out = self.bn2(self.accfun(out))
         return out
@@ -329,11 +607,19 @@ class PathRes3d(nn.Module):
         return out
 
 
+class Symmetry(nn.Module):
+    def __init__(self):
+        super(Symmetry, self).__init__()
+    
+    def forward(self, x):
+        return (x + x.transpose(-2, -1)) / 2
+
+
 def MulResUnet3D(
         num_input_channels=1, num_output_channels=3,
         num_channels_down=[16, 32, 64, 128, 256], num_channels_up=[16, 32, 64, 128, 256],
         num_channels_skip=[16, 32, 64, 128],
-        alpha=1.67, need_sigmoid=True, need_bias=True,
+        alpha=1.67, need_sigmoid=False, need_bias=True,
         upsample_mode='nearest', act_fun='LeakyReLU'):
     """
         The 3D multi-resolution Unet
@@ -405,208 +691,14 @@ def MulResUnet3D(
     model.add(
         conv3d(last_kernal, num_output_channels, 3, bias=need_bias))
     if need_sigmoid:
-        model.add(nn.Sigmoid())
+        model.add(Symmetry())
     
     return model
 
 
-class UNet(nn.Module):
-    """
-        upsample_mode in ['deconv', 'nearest', 'bilinear']
-        pad in ['zero', 'replication', 'none']
-    """
-    
-    def __init__(self, num_input_channels=3, num_output_channels=3,
-                 filters=[16, 32, 64, 128, 256], more_layers=0, concat_x=False,
-                 activation='ReLU', upsample_mode='deconv', pad='zero',
-                 norm_layer=nn.InstanceNorm2d, need_sigmoid=True, need_bias=True):
-        super(UNet, self).__init__()
-        
-        self.more_layers = more_layers
-        self.concat_x = concat_x
-        
-        if activation == "ReLU":
-            act_fun = nn.ReLU()
-        elif activation == "Tanh":
-            act_fun = nn.Tanh()
-        elif activation == "LeakyReLU":
-            act_fun = nn.LeakyReLU(0.2, inplace=True)
-        else:
-            raise ValueError("Activation has to be in [ReLU, Tanh, LeakyReLU]")
-        
-        self.start = unetConv2(num_input_channels, filters[0] if not concat_x else filters[0] - num_input_channels,
-                               norm_layer, need_bias, pad, act_fun)
-        
-        self.down1 = unetDown(filters[0], filters[1] if not concat_x else filters[1] - num_input_channels, norm_layer,
-                              need_bias, pad, act_fun)
-        self.down2 = unetDown(filters[1], filters[2] if not concat_x else filters[2] - num_input_channels, norm_layer,
-                              need_bias, pad, act_fun)
-        self.down3 = unetDown(filters[2], filters[3] if not concat_x else filters[3] - num_input_channels, norm_layer,
-                              need_bias, pad, act_fun)
-        self.down4 = unetDown(filters[3], filters[4] if not concat_x else filters[4] - num_input_channels, norm_layer,
-                              need_bias, pad, act_fun)
-        
-        # more downsampling layers
-        if self.more_layers > 0:
-            self.more_downs = [
-                unetDown(filters[4], filters[4] if not concat_x else filters[4] - num_input_channels, norm_layer,
-                         need_bias, pad, act_fun) for i in range(self.more_layers)]
-            self.more_ups = [unetUp(filters[4], upsample_mode, need_bias, pad, act_fun, same_num_filt=True) for i in
-                             range(self.more_layers)]
-            
-            self.more_downs = ListModule(*self.more_downs)
-            self.more_ups = ListModule(*self.more_ups)
-        
-        self.up4 = unetUp(filters[3], upsample_mode, need_bias, pad, act_fun)
-        self.up3 = unetUp(filters[2], upsample_mode, need_bias, pad, act_fun)
-        self.up2 = unetUp(filters[1], upsample_mode, need_bias, pad, act_fun)
-        self.up1 = unetUp(filters[0], upsample_mode, need_bias, pad, act_fun)
-        
-        self.final = conv(filters[0], num_output_channels,
-                          1, bias=need_bias, pad=pad)
-        
-        if need_sigmoid:
-            self.final = nn.Sequential(self.final, nn.Sigmoid())
-    
-    def forward(self, inputs):
-        
-        # Downsample
-        downs = [inputs]
-        down = nn.AvgPool2d(2, 2)
-        for i in range(4 + self.more_layers):
-            downs.append(down(downs[-1]))
-        
-        in64 = self.start(inputs)
-        if self.concat_x:
-            in64 = torch.cat([in64, downs[0]], 1)
-        
-        down1 = self.down1(in64)
-        if self.concat_x:
-            down1 = torch.cat([down1, downs[1]], 1)
-        
-        down2 = self.down2(down1)
-        if self.concat_x:
-            down2 = torch.cat([down2, downs[2]], 1)
-        
-        down3 = self.down3(down2)
-        if self.concat_x:
-            down3 = torch.cat([down3, downs[3]], 1)
-        
-        down4 = self.down4(down3)
-        if self.concat_x:
-            down4 = torch.cat([down4, downs[4]], 1)
-        
-        if self.more_layers > 0:
-            prevs = [down4]
-            for kk, d in enumerate(self.more_downs):
-                # print(prevs[-1].size())
-                out = d(prevs[-1])
-                if self.concat_x:
-                    out = torch.cat([out, downs[kk + 5]], 1)
-                
-                prevs.append(out)
-            
-            up_ = self.more_ups[-1](prevs[-1], prevs[-2])
-            for idx in range(self.more_layers - 1):
-                l = self.more_ups[self.more - idx - 2]
-                up_ = l(up_, prevs[self.more - idx - 2])
-        else:
-            up_ = down4
-        
-        up4 = self.up4(up_, down3)
-        up3 = self.up3(up4, down2)
-        up2 = self.up2(up3, down1)
-        up1 = self.up1(up2, in64)
-        
-        return self.final(up1)
-
-
-class unetConv2(nn.Module):
-    def __init__(self, in_size, out_size, norm_layer, need_bias, pad, act_fun):
-        super(unetConv2, self).__init__()
-        
-        # print(pad)
-        if norm_layer is not None:
-            self.conv1 = nn.Sequential(conv(in_size, out_size, 3, bias=need_bias, pad=pad),
-                                       norm_layer(out_size), act_fun, )
-            self.conv2 = nn.Sequential(conv(out_size, out_size, 3, bias=need_bias, pad=pad),
-                                       norm_layer(out_size), act_fun, )
-        else:
-            self.conv1 = nn.Sequential(
-                conv(in_size, out_size, 3, bias=need_bias, pad=pad), act_fun, )
-            self.conv2 = nn.Sequential(
-                conv(out_size, out_size, 3, bias=need_bias, pad=pad), act_fun, )
-    
-    def forward(self, inputs):
-        outputs = self.conv1(inputs)
-        outputs = self.conv2(outputs)
-        return outputs
-
-
-class unetDown(nn.Module):
-    def __init__(self, in_size, out_size, norm_layer, need_bias, pad, act_fun):
-        super(unetDown, self).__init__()
-        self.conv = unetConv2(
-            in_size, out_size, norm_layer, need_bias, pad, act_fun)
-        self.down = nn.MaxPool2d(2, 2)
-    
-    def forward(self, inputs):
-        outputs = self.down(inputs)
-        outputs = self.conv(outputs)
-        return outputs
-
-
-class unetUp(nn.Module):
-    def __init__(self, out_size, upsample_mode, need_bias, pad, act_fun, same_num_filt=False):
-        super(unetUp, self).__init__()
-        
-        num_filt = out_size if same_num_filt else out_size * 2
-        if upsample_mode == 'deconv':
-            self.up = nn.ConvTranspose2d(
-                num_filt, out_size, 4, stride=2, padding=1)
-            self.conv = unetConv2(out_size * 2, out_size,
-                                  None, need_bias, pad, act_fun)
-        elif upsample_mode == 'bilinear' or upsample_mode == 'nearest':
-            self.up = nn.Sequential(nn.Upsample(scale_factor=2, mode=upsample_mode),
-                                    conv(num_filt, out_size, 3, bias=need_bias, pad=pad))
-            self.conv = unetConv2(out_size * 2, out_size,
-                                  None, need_bias, pad, act_fun)
-        else:
-            assert False
-    
-    def forward(self, inputs1, inputs2):
-        in1_up = self.up(inputs1)
-        
-        if (inputs2.size(2) != in1_up.size(2)) or (inputs2.size(3) != in1_up.size(3)):
-            diff2 = (inputs2.size(2) - in1_up.size(2)) // 2
-            diff3 = (inputs2.size(3) - in1_up.size(3)) // 2
-            inputs2_ = inputs2[:, :, diff2: diff2 +
-                                            in1_up.size(2), diff3: diff3 + in1_up.size(3)]
-        else:
-            inputs2_ = inputs2
-        
-        output = self.conv(torch.cat([in1_up, inputs2_], 1))
-        
-        return output
-
-
-def snr_torch(target, output):
-    """
-    Compute SNR between the target and the reconstructed images
-
-    :param target:  numpy array of reference
-    :param output:  numpy array we have produced
-    :return: SNR in dB
-    """
-    if target.shape != output.shape:
-        raise ValueError('There is something wrong with the dimensions!')
-    return 10 * torch.log10(torch.sum(target ** 2) / torch.sum((target - output) ** 2))
-
-
-def pcorr(target, output):
-    mean_tar = torch.mean(target)
-    mean_out = torch.mean(output)
-    tar_dif = target - mean_tar
-    out_dif = output - mean_out
-    return torch.sum(tar_dif * out_dif) / (torch.sqrt(
-        torch.sum(tar_dif ** 2)) * torch.sqrt(torch.sum(out_dif ** 2)))
+__all__ = [
+    "MulResUnet",
+    "AttMulResUnet2D",
+    "Symmetry",
+    "MulResUnet3D",
+]

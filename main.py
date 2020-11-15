@@ -1,25 +1,23 @@
 from __future__ import print_function
 import warnings
-
 warnings.filterwarnings("ignore")
 
 import os
 import torch
 import numpy as np
-from parameter import parse_main_arguments
-from architectures import MulResUnet, MulResUnet3D, snr_torch, pcorr
-import utils as u
-from data import get_patch
-
 from collections import namedtuple
 from time import time
 from termcolor import colored
 import json
 
+from parameter import parse_arguments
+from architectures import MulResUnet, MulResUnet3D, AttMulResUnet2D, PartialConvUNet, PartialConv3DUNet
+from data import get_patch
+import utils as u
+
+
 dtype = torch.cuda.FloatTensor
-
 u.set_seed()
-
 # this is defined here because of pickle
 History = namedtuple("History", ['loss', 'snr', 'pcorr'])
 
@@ -29,9 +27,11 @@ class Training:
         self.args = args
         self.dtype = dtype
         self.outpath = outpath
-        self.lossfunc = torch.nn.MSELoss().type(self.dtype)
+        # MSELoss()
+        self.lossfunc = torch.nn.L1Loss().type(self.dtype)
         self.elapsed = None
         self.iiter = 0
+        self.saving_interval = 0
         self.loss_min = self.args.loss_max
         self.outchannel = args.imgchannel
         self.history = History([], [], [])
@@ -43,6 +43,8 @@ class Training:
         self.mask = None
         self.mask_tensor = None
         self.out_img = None
+        self.threshold = args.threshold
+        self.step = args.update_step
         
         # build input tensors
         self.input_type = 'noise3d' if args.datadim == '3d' else 'noise'
@@ -65,18 +67,33 @@ class Training:
     
     def build_model(self, netpath=None):
         if self.args.datadim in ['2d', '2.5d']:
-            self.net = MulResUnet(num_input_channels=self.args.inputdepth,
-                                  num_output_channels=self.outchannel,
-                                  num_channels_down=self.args.filters,
-                                  num_channels_up=self.args.filters,
-                                  num_channels_skip=self.args.skip,
-                                  upsample_mode=self.args.upsample,  # default is bilinear
-                                  need_sigmoid=self.args.need_sigmoid,
-                                  need_bias=True,
-                                  act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
-                                  ).type(self.dtype)
+            if self.args.net == 'multiunet':
+                self.net = MulResUnet(num_input_channels=self.args.inputdepth,
+                                      num_output_channels=self.outchannel,
+                                      num_channels_down=self.args.filters,
+                                      num_channels_up=self.args.filters,
+                                      num_channels_skip=self.args.skip,
+                                      upsample_mode=self.args.upsample,  # default is bilinear
+                                      need_sigmoid=self.args.need_sigmoid,
+                                      need_bias=True,
+                                      act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                                      ).type(self.dtype)
+            elif self.args.net == 'attmultiunet':
+                self.net = AttMulResUnet2D(num_input_channels=self.args.inputdepth,
+                                           num_output_channels=self.outchannel,
+                                           num_channels_down=self.args.filters,
+                                           upsample_mode=self.args.upsample,  # default is bilinear
+                                           need_sigmoid=self.args.need_sigmoid,
+                                           need_bias=True,
+                                           act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                                           ).type(self.dtype)
+            elif self.args.net == 'part':
+                self.net = PartialConvUNet(self.args.inputdepth, self.outchannel).type(self.dtype)
+        
         else:
-            if self.args.net == 'load':
+            if self.args.net == 'part':
+                self.net = PartialConv3DUNet(self.args.inputdepth, self.outchannel).type(self.dtype)
+            elif self.args.net == 'load':
                 self.net = MulResUnet3D(num_input_channels=self.args.inputdepth,
                                         num_output_channels=self.outchannel,
                                         num_channels_down=self.args.filters,
@@ -100,7 +117,8 @@ class Training:
                                         need_bias=True,
                                         act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
                                         ).type(self.dtype)
-                u.init_weights(self.net, self.args.inittype, self.args.initgain)
+        if self.args.net != 'load':
+            u.init_weights(self.net, self.args.inittype, self.args.initgain)
         self.parameters = u.get_params('net', self.net, self.input_tensor)
         self.num_params = sum(np.prod(list(p.size())) for p in self.net.parameters())
     
@@ -123,7 +141,10 @@ class Training:
         self.img_tensor = u.np_to_torch(np.transpose(self.img, re_sha)[np.newaxis]).type(self.dtype)
         self.mask_tensor = u.np_to_torch(np.transpose(self.mask, re_sha)[np.newaxis]).type(self.dtype)
         
-        print('the std of input image is %f' % torch.std(self.img_tensor * self.mask_tensor))
+        self.mask_update = u.MaskUpdate(self.mask_tensor, self.threshold, self.step)
+        
+        input_std = torch.std(self.img_tensor * self.mask_tensor).item()
+        return input_std
     
     def optimization_loop(self):
         # Adding normal noise to the learned parameters.
@@ -136,19 +157,26 @@ class Training:
         if self.args.reg_noise_std > 0:
             input_tensor = self.input_tensor_old + (self.additional_noise_tensor.normal_() * self.args.reg_noise_std)
         
+        # mask_tensor = self.mask_tensor.repeat((1, self.args.inputdepth, 1, 1, 1))
         output_tensor = self.net(input_tensor)
         
-        total_loss = self.lossfunc(output_tensor * self.mask_tensor, self.img_tensor * self.mask_tensor)
+        mask_tensor = self.mask_update.update(self.iiter)
+        if self.iiter % self.step == 0:
+            self.old_output = output_tensor.clone().detach()
+        
+        image_tensor = self.img_tensor * self.mask_tensor + (mask_tensor - self.mask_tensor) * self.old_output
+        
+        total_loss = self.lossfunc(output_tensor * mask_tensor, image_tensor)
         
         total_loss.backward()
         
         self.history.loss.append(total_loss.item())
-        self.history.snr.append(snr_torch(self.img_tensor, 
-            output_tensor * (1 - self.mask_tensor) + self.img_tensor * self.mask_tensor).item())
+        self.history.snr.append(
+            u.snr(self.img_tensor, output_tensor * (1 - self.mask_tensor) + self.img_tensor * self.mask_tensor).item())
         self.history.pcorr.append(
-            pcorr(self.img_tensor * (1 - self.mask_tensor), output_tensor * (1 - self.mask_tensor)).item())
+            u.pcorr(self.img_tensor * (1 - self.mask_tensor), output_tensor * (1 - self.mask_tensor)).item())
         
-        msg = "Iter %s, Loss = %.2e, SNR = %.2f dB, PCORR = %.2e" \
+        msg = "Iter %s, Loss = %.2e, SNR = %+.2f dB, PCORR = %+.2e" \
               % (str(self.iiter + 1).zfill(u.ten_digit(self.args.epochs)),
                  self.history.loss[-1],
                  self.history.snr[-1],
@@ -164,8 +192,8 @@ class Training:
                 self.out_img = u.torch_to_np(output_tensor).transpose(1, 2, 0)
             else:
                 self.out_img = u.torch_to_np(output_tensor).squeeze()
-            # saving the intermediate output. if don't want to save anything, set save_every larger than epoches
-        if self.iiter in range(0, self.args.epochs, self.args.save_every):
+        # saving the intermediate output. if don't want to save anything, set save_every larger than epoches
+        if self.iiter in list(range(0, 200, int(self.args.save_every))) and self.iiter != 0:
             if len(output_tensor.shape) <= 4:
                 out_img = u.torch_to_np(output_tensor).transpose(1, 2, 0)
             else:
@@ -174,6 +202,7 @@ class Training:
                     out_img)
         
         self.iiter += 1
+        # self.saving_interval += 1
         
         return total_loss
     
@@ -203,8 +232,7 @@ class Training:
             'image'       : self.img,
             'output'      : self.out_img
         }
-        np.save(os.path.join(self.outpath,
-                             self.image_name + '_run.npy'), mydict)
+        np.save(os.path.join(self.outpath, self.image_name + '_run.npy'), mydict)
         # save the model
         if self.args.savemodel:
             torch.save(self.net.state_dict(),
@@ -218,16 +246,14 @@ class Training:
         self.loss_min = self.args.loss_max
 
 
-def main() -> int:
-    args = parse_main_arguments()
+def main() -> None:
+    args = parse_arguments()
     
-    # set the engine to be used
     u.set_gpu(args.gpu)
     
     # create output folder
     dir_list = list(filter(None, args.imgdir.split('/')))
-    outpath = os.path.join(args.outdir, 'test')
-    # outpath = os.path.join(args.outdir, dir_list[-2], dir_list[-1], u.random_code())
+    outpath = os.path.join(args.outdir, u.random_code())
     if not os.path.exists(outpath):
         os.makedirs(outpath)
     print(colored('Saving to %s' % outpath, 'yellow'))
@@ -241,17 +267,20 @@ def main() -> int:
     for i, patch in enumerate(patches_list):
         imgshape = patch['img'].shape
         print(colored('The image shape is %s ' % (imgshape,), 'green'))
+        
         T.build_input(imgshape)
-        if args.netdir:
-            T.build_model(netpath=args.netdir[i])
+        T.build_model()
+        std = T.load_data(patch)
+        print('the std of input image is %f' % std)
+        if np.isclose(std, 0.):  # all the data are corrupted
+            print('skipping...')
+            T.out_img = T.img * T.mask
+            T.elapsed = 0.
         else:
-            T.build_model()
-        T.load_data(patch)
-        T.optimize()
+            T.optimize()
         T.save_result()
         T.clean()
-    
-    print(colored('Interpolation done!', 'yellow'))
+    print(colored('Interpolation done! Saved to %s' % outpath, 'yellow'))
 
 
 if __name__ == '__main__':

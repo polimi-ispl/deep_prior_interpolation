@@ -1,12 +1,11 @@
-import torch
-import torch.nn as nn
 import numpy as np
+import torch
 from torch.nn import init
+import torch.nn.functional as F
 from GPUtil import getFirstAvailable, getGPUs
 from termcolor import colored
 import os
-import random
-import string
+from cv2 import dilate
 
 
 def init_weights(net, init_type='normal', init_gain=0.02):
@@ -103,18 +102,6 @@ def torch_to_np(img_var):
     return img_var.detach().cpu().numpy()[0]
 
 
-def ten_digit(number):
-    return int(np.floor(np.log10(number)) + 1)
-
-
-def sec2time(seconds):
-    s = seconds % 60
-    m = (seconds // 60) % 60
-    h = seconds // 3600
-    timestamp = '%dh:%dm:%ds' % (h, m, s)
-    return timestamp
-
-
 def get_params(opt_over, net, net_input, downsampler=None):
     '''Returns parameters that we want to optimize over.
 
@@ -165,11 +152,6 @@ def set_gpu(id=-1):
         os.environ["CUDA_VISIBLE_DEVICES"] = str(device)
 
 
-def random_code(n=6):
-    return ''.join([random.choice(string.ascii_letters + string.digits)
-                    for _ in range(int(n))])
-
-
 def set_seed(seed=0):
     """
         Set the seed of random.
@@ -177,8 +159,86 @@ def set_seed(seed=0):
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     dtype = torch.cuda.FloatTensor
-    seed = 0
+
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
+
+
+def add_rand_mask(mask, perc=0.3):
+    """
+        add the addictive random missing points to the mask.
+        parameter:
+            mask -- the mask(2D or 3D), which should be (nt, nx), (nt, nx, ny)
+            perc -- the percent of addictive deleting samples
+
+        return:
+            the processed new makk
+    """
+    m = mask.copy()
+    points = np.argwhere(m[0] == 1)
+    rr = np.random.choice(np.arange(points.shape[0]), int(points.shape[0] * perc), replace=False)
+    if m.ndim == 2:
+        for p in points[rr]:
+            m[:, p[0]] = 0
+    else:
+        for p in points[rr]:
+            m[:, p[0], p[1]] = 0
+    return m
+
+
+def dilate_mask(mask, iterations=1):
+    kernel = np.ones((2, 2), np.uint8)
+    ddtype = mask.dtype
+    device = mask.device
+    mask_np = mask.clone().detach().cpu().numpy()
+    shape = mask_np.shape
+    mask_np = mask_np.squeeze()
+    mask_res = np.empty_like(mask_np)
+    for i in range(mask_np.shape[0]):
+        m = mask_np[i].astype(np.uint8)
+        mask_res[i] = dilate(m, kernel, iterations=iterations)
+    
+    mask_res = torch.from_numpy(mask_res.reshape(shape)).type(ddtype).to(device)
+    return mask_res
+
+
+class MaskUpdate:
+    def __init__(self, mask, threshold, step) -> None:
+        self.threshold = threshold
+        self.step = step
+        self.iter = 0
+        self.new_mask = mask
+        self.old_mask = mask
+    
+    def update(self, iiter):
+        mask_return = self.old_mask
+        if iiter > self.threshold:
+            iiter_dil = (iiter - self.threshold) // self.step + 1
+            if iiter_dil > self.iter:
+                self.old_mask = self.new_mask
+                self.new_mask = dilate_mask(self.old_mask)
+                self.iter = iiter_dil
+            iter_drop = (iiter - self.threshold) % self.step
+            p = 1. - 1. / self.step * (iter_drop + 1)
+            mask_add = F.dropout(self.new_mask - self.old_mask, p)
+            mask_add[mask_add != 0] = 1
+            
+            mask_return = self.old_mask + mask_add
+        return mask_return
+
+
+__all__ = [
+    "init_weights",
+    "fill_noise",
+    "get_noise",
+    "np_to_torch",
+    "torch_to_np",
+    "get_params",
+    "set_gpu",
+    "set_seed",
+    "add_rand_mask",
+    "dilate_mask",
+    "MaskUpdate",
+]
