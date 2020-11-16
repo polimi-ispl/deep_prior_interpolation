@@ -103,23 +103,26 @@ def seismograms(in_content: np.ndarray, ax, tlim: tuple = None, xlim: tuple = No
     else:
         raise ValueError("color has to be a tuple of 2 elements")
     
-    if tlim is None:
-        tlim = (0, in_content.shape[0])
-    if xlim is None:
-        xlim = (0, in_content.shape[1])
+    tlim_ = tlim if tlim is not None else (0, in_content.shape[0])
+    xlim_ = xlim if xlim is not None else (1, in_content.shape[1])
     
-    t_axis = np.linspace(tlim[0], tlim[1], in_content.shape[0])
-    x_axis = np.linspace(xlim[0], xlim[1], in_content.shape[1])
+    t_axis = np.linspace(tlim_[0], tlim_[1], in_content.shape[0])
+    x_axis = np.linspace(xlim_[0], xlim_[1], in_content.shape[1])
     
     for idx, x in enumerate(x_axis):
         trace = in_content[:, idx] * gain + x
         ax.fill_betweenx(t_axis, trace, x, where=trace >= x, facecolor=color[0])
         ax.fill_betweenx(t_axis, trace, x, where=trace <= x, facecolor=color[1])
     
-    ax.set_ylim(tlim[0], tlim[1])
-    ax.set_ylabel('Time [ms]')
+    ax.set_ylim(tlim_[0], tlim_[1])
     ax.invert_yaxis()
-    ax.set_xlabel('Trace [m]')
+
+    ax.set_xticks(x_axis)
+    ax.tick_params(axis='x', size=2, width=1)
+    ax.xaxis.set_label_position('top')
+    ax.xaxis.set_ticks_position('top')
+
+    ax.grid(b=True, which='major', axis='y')
 
 
 __all__ = [
