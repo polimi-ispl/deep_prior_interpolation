@@ -1,3 +1,4 @@
+from typing import Tuple, List, Union
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -17,6 +18,13 @@ def explode_volume(volume: np.ndarray, t: int = 0, x: int = 0, y: int = 0,
     if linespec is None:
         linespec = dict(ls='-', lw=1, color='gold')
     nt, nx, ny = volume.shape
+    
+    if tlim is None:
+        tlim = (0, volume.shape[0])
+    if xlim is None:
+        xlim = (0, volume.shape[1])
+    if ylim is None:
+        ylim = (0, volume.shape[2])
     
     # vertical lines for coordinates reference
     tline = (tlim[1] - tlim[0]) / nt * t + tlim[0]
@@ -86,8 +94,37 @@ def gif_from_array(in_content: np.ndarray, filename: str or Path,
     mimsave(filename, frames, 'GIF', **kwargs)
 
 
+def seismograms(in_content: np.ndarray, ax, tlim: tuple = None, xlim: tuple = None,
+                gain: float = 1., color: Union[str, Tuple[str]] = 'black') -> None:
+    if isinstance(color, str):
+        color = (color, color)
+    elif isinstance(color, tuple):
+        assert len(color) == 2, "color has to be a tuple of 2 elements"
+    else:
+        raise ValueError("color has to be a tuple of 2 elements")
+    
+    if tlim is None:
+        tlim = (0, in_content.shape[0])
+    if xlim is None:
+        xlim = (0, in_content.shape[1])
+    
+    t_axis = np.linspace(tlim[0], tlim[1], in_content.shape[0])
+    x_axis = np.linspace(xlim[0], xlim[1], in_content.shape[1])
+    
+    for idx, x in enumerate(x_axis):
+        trace = in_content[:, idx] * gain + x
+        ax.fill_betweenx(t_axis, trace, x, where=trace >= x, facecolor=color[0])
+        ax.fill_betweenx(t_axis, trace, x, where=trace <= x, facecolor=color[1])
+    
+    ax.set_ylim(tlim[0], tlim[1])
+    ax.set_ylabel('Time [ms]')
+    ax.invert_yaxis()
+    ax.set_xlabel('Trace [m]')
+
+
 __all__ = [
     "clim",
     "explode_volume",
     "gif_from_array",
+    "seismograms",
 ]
