@@ -1,5 +1,6 @@
 from __future__ import print_function
 import warnings
+
 warnings.filterwarnings("ignore")
 
 import os
@@ -11,10 +12,9 @@ from termcolor import colored
 import json
 
 from parameter import parse_arguments
-from architectures import MulResUnet, MulResUnet3D, AttMulResUnet2D, PartialConvUNet, PartialConv3DUNet
+from architectures import UNet, MulResUnet, MulResUnet3D, AttMulResUnet2D, PartialConvUNet, PartialConv3DUNet
 from data import get_patch
 import utils as u
-
 
 dtype = torch.cuda.FloatTensor
 u.set_seed()
@@ -67,56 +67,71 @@ class Training:
     
     def build_model(self, netpath=None):
         if self.args.datadim in ['2d', '2.5d']:
-            if self.args.net == 'multiunet':
-                self.net = MulResUnet(num_input_channels=self.args.inputdepth,
-                                      num_output_channels=self.outchannel,
-                                      num_channels_down=self.args.filters,
-                                      num_channels_up=self.args.filters,
-                                      num_channels_skip=self.args.skip,
-                                      upsample_mode=self.args.upsample,  # default is bilinear
-                                      need_sigmoid=self.args.need_sigmoid,
-                                      need_bias=True,
-                                      act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
-                                      ).type(self.dtype)
+            if self.args.net == 'unet':
+                self.net = UNet(
+                    num_input_channels=self.args.inputdepth,
+                    num_output_channels=self.outchannel,
+                    filters=self.args.filters,
+                    upsample_mode=self.args.upsample,  # default is bilinear
+                    need_sigmoid=self.args.need_sigmoid,
+                    need_bias=True,
+                    activation=self.args.activation  #
+                )
             elif self.args.net == 'attmultiunet':
-                self.net = AttMulResUnet2D(num_input_channels=self.args.inputdepth,
-                                           num_output_channels=self.outchannel,
-                                           num_channels_down=self.args.filters,
-                                           upsample_mode=self.args.upsample,  # default is bilinear
-                                           need_sigmoid=self.args.need_sigmoid,
-                                           need_bias=True,
-                                           act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
-                                           ).type(self.dtype)
+                self.net = AttMulResUnet2D(
+                    num_input_channels=self.args.inputdepth,
+                    num_output_channels=self.outchannel,
+                    num_channels_down=self.args.filters,
+                    upsample_mode=self.args.upsample,  # default is bilinear
+                    need_sigmoid=self.args.need_sigmoid,
+                    need_bias=True,
+                    act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                )
             elif self.args.net == 'part':
-                self.net = PartialConvUNet(self.args.inputdepth, self.outchannel).type(self.dtype)
-        
+                self.net = PartialConvUNet(self.args.inputdepth, self.outchannel)
+            else:
+                self.net = MulResUnet(
+                    num_input_channels=self.args.inputdepth,
+                    num_output_channels=self.outchannel,
+                    num_channels_down=self.args.filters,
+                    num_channels_up=self.args.filters,
+                    num_channels_skip=self.args.skip,
+                    upsample_mode=self.args.upsample,  # default is bilinear
+                    need_sigmoid=self.args.need_sigmoid,
+                    need_bias=True,
+                    act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                )
         else:
             if self.args.net == 'part':
-                self.net = PartialConv3DUNet(self.args.inputdepth, self.outchannel).type(self.dtype)
+                self.net = PartialConv3DUNet(self.args.inputdepth, self.outchannel)
             elif self.args.net == 'load':
-                self.net = MulResUnet3D(num_input_channels=self.args.inputdepth,
-                                        num_output_channels=self.outchannel,
-                                        num_channels_down=self.args.filters,
-                                        num_channels_up=self.args.filters,
-                                        num_channels_skip=self.args.skip,
-                                        upsample_mode=self.args.upsample,  # default is bilinear
-                                        need_sigmoid=self.args.need_sigmoid,
-                                        need_bias=True,
-                                        act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
-                                        )
+                self.net = MulResUnet3D(
+                    num_input_channels=self.args.inputdepth,
+                    num_output_channels=self.outchannel,
+                    num_channels_down=self.args.filters,
+                    num_channels_up=self.args.filters,
+                    num_channels_skip=self.args.skip,
+                    upsample_mode=self.args.upsample,  # default is bilinear
+                    need_sigmoid=self.args.need_sigmoid,
+                    need_bias=True,
+                    act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                )
                 self.net.load_state_dict(torch.load(netpath))
-                self.net = self.net.type(self.dtype)
             else:
-                self.net = MulResUnet3D(num_input_channels=self.args.inputdepth,
-                                        num_output_channels=self.outchannel,
-                                        num_channels_down=self.args.filters,
-                                        num_channels_up=self.args.filters,
-                                        num_channels_skip=self.args.skip,
-                                        upsample_mode=self.args.upsample,  # default is bilinear
-                                        need_sigmoid=self.args.need_sigmoid,
-                                        need_bias=True,
-                                        act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
-                                        ).type(self.dtype)
+                self.net = MulResUnet3D(
+                    num_input_channels=self.args.inputdepth,
+                    num_output_channels=self.outchannel,
+                    num_channels_down=self.args.filters,
+                    num_channels_up=self.args.filters,
+                    num_channels_skip=self.args.skip,
+                    upsample_mode=self.args.upsample,  # default is bilinear
+                    need_sigmoid=self.args.need_sigmoid,
+                    need_bias=True,
+                    act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                )
+        
+        self.net = self.net.type(self.dtype)
+
         if self.args.net != 'load':
             u.init_weights(self.net, self.args.inittype, self.args.initgain)
         self.parameters = u.get_params('net', self.net, self.input_tensor)
