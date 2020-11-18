@@ -4,16 +4,14 @@ from argparse import ArgumentParser, Namespace
 def parse_arguments() -> Namespace:
     parser = ArgumentParser()
     # dataset parameter
-    parser.add_argument('--imgdir', type=str, required=True, default='./data/',
+    parser.add_argument('--imgdir', type=str, required=True, default='./datasets/',
                         help='Directory containing the processed data')
-    parser.add_argument('--outdir', type=str, required=False, default='./results/',
-                        help='Directory for saving the results')
-    parser.add_argument('--imgname', nargs='+', type=str, required=False, default=[],
-                        help='The name of original images')
-    parser.add_argument('--maskname', nargs='+', type=str, required=False, default=[],
-                        help='The name of corrupted images')
-    parser.add_argument('--gain', nargs='+', type=float, required=False, default=[2e3],
-                        help='normalize the input')
+    parser.add_argument('--outdir', type=str, required=False,
+                        help='Subfolder in ./results/ for saving.')
+    parser.add_argument('--imgname', type=str, help='The name of original images')
+    parser.add_argument('--maskname', type=str, help='The name of corrupted images')
+    parser.add_argument('--gain', type=float, required=False, default=2e3,
+                        help='gain for the input')
     parser.add_argument('--datadim', type=str, required=False, default='2d', choices=['2d', '2.5d', '3d'],
                         help='The dimensionality of the data')
     parser.add_argument('--slice', type=str, required=False, default='XY', choices=['XT', 'YT', 'XY'],
@@ -24,6 +22,10 @@ def parse_arguments() -> Namespace:
                         help='The percent of addictive random deleting samples')
     parser.add_argument('--padwidth', type=int, required=False, default=0,
                         help='The padding width to the process data using edge mode')
+    parser.add_argument('--patch_shape', nargs='+', type=int, required=False,
+                        help="Patch shape to be processed (it can handle 2D, 2.5D, 3D)")
+    parser.add_argument('--patch_stride', nargs='+', type=int, required=False,
+                        help="Patch stride for the extraction (it can handle 2D, 2.5D, 3D)")
 
     # network design
     parser.add_argument('--net', type=str, required=False, default='multiunet',
@@ -44,7 +46,7 @@ def parse_arguments() -> Namespace:
                         help='Depth of the input noise tensor')
     parser.add_argument('--upsample', type=str, required=False, default='nearest',
                         choices=['nearest', 'bilinear', 'trilinear'],
-                        help="Network's pgoing deconvolution strategy")
+                        help="Network's upgoing deconvolution strategy")
     parser.add_argument('--inittype', type=str, required=False, default='xavier',
                         choices=['xavier', 'normal', 'default', 'kaiming', 'orthogonal'],
                         help='Initialization strategy for the network weights')
@@ -52,7 +54,7 @@ def parse_arguments() -> Namespace:
                         help='Initialization scaling factor for normal, xavier and orthogonal.')
     parser.add_argument('--savemodel', action='store_true', default=False,
                         help='Save the optimized model to disk')
-    parser.add_argument('--netdir', nargs='+', type=str, required=False, default='',
+    parser.add_argument('--netdir', type=str, required=False, default='',
                         help='Path for saving the optimized model')
     # training parameter
     parser.add_argument('--epochs', '-e', type=int, required=False, default=2001,
@@ -77,5 +79,16 @@ def parse_arguments() -> Namespace:
                         help='Update mask when iteration larger than threshold')
     parser.add_argument('--update_step', type=int, default=200, required=False,
                         help='Update mask step')
-
-    return parser.parse_args()
+    
+    args = parser.parse_args()
+    assert len(args.imgname) == len(args.maskname), "Images and Masks have to be the same number"
+    if args.datadim == "3d" and args.upsample == "bilinear":
+        args.upsample = "trilinear"
+    
+    if args.patch_shape is None:
+        if args.datadim == '2d':
+            args.patch_shape = [-1, -1]
+        else:
+            args.patch_shape = [-1, -1, -1]
+            
+    return args

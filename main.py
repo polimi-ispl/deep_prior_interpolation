@@ -9,11 +9,10 @@ import numpy as np
 from collections import namedtuple
 from time import time
 from termcolor import colored
-import json
 
 from parameter import parse_arguments
 from architectures import UNet, MulResUnet, MulResUnet3D, AttMulResUnet2D, PartialConvUNet, PartialConv3DUNet
-from data import get_patch
+from data import extract_patches
 import utils as u
 
 dtype = torch.cuda.FloatTensor
@@ -63,7 +62,7 @@ class Training:
                                         noise_type=self.args.noise_dist, var=self.args.noise_std).type(dtype)
         self.input_tensor_old = self.input_tensor.detach().clone()
         self.additional_noise_tensor = self.input_tensor.detach().clone()
-        print(colored('The shape of input noise is %s.\n' % str(self.input_tensor.shape), 'yellow'))
+        print(colored('The input shape is %s' % str(tuple(self.input_tensor.shape)), 'cyan'))
     
     def build_model(self, netpath=None):
         if self.args.datadim in ['2d', '2.5d']:
@@ -140,11 +139,11 @@ class Training:
     def load_data(self, data):
         """ Load the corrupted image and mask 
             Parameters:
-                data -- the dictionary include the attribute of 'img', 'mask', 'name', 
+                data -- the dictionary include the attribute of 'image', 'mask', 'name',
                         the output of get_patch function.
         """
-        self.image_name = data['name'].split('.')[0]  # here the name is set as the name of input image.
-        self.img = data['img']
+        self.image_name = data['name']  # here the name is set as the name of input image.
+        self.img = data['image']
         self.mask = data['mask']
         
         if self.mask.shape != self.img.shape:
@@ -225,7 +224,7 @@ class Training:
         """
             Train the network.
         """
-        print('Starting optimization with ADAM')
+        print(colored('starting optimization with ADAM...', 'cyan'))
         optimizer = torch.optim.Adam(self.parameters, lr=self.args.lr)
         start = time()
         for j in range(self.args.epochs):
@@ -256,7 +255,7 @@ class Training:
     def clean(self):
         self.iiter = 0
         self.saving_interval = 0
-        print(colored('The image -%s has finished' % self.image_name, 'green'))
+        print(colored('The image %s has finished' % self.image_name, 'yellow'))
         torch.cuda.empty_cache()
         self.loss_min = self.args.loss_max
 
@@ -266,29 +265,27 @@ def main() -> None:
     
     u.set_gpu(args.gpu)
     
-    # create output folder
-    dir_list = list(filter(None, args.imgdir.split('/')))
-    outpath = os.path.join(args.outdir, u.random_code())
-    if not os.path.exists(outpath):
-        os.makedirs(outpath)
+    # create output folder and save arguments
+    outpath = os.path.join('./results/', args.outdir if args.outdir is not None else u.random_code())
+    os.makedirs(outpath, exist_ok=True)
     print(colored('Saving to %s' % outpath, 'yellow'))
-    with open(os.path.join(outpath, 'args.txt'), 'w') as fp:
-        json.dump(args.__dict__, fp, indent=2)
+    u.write_args(os.path.join(outpath, 'args.txt'), args)
     
+    # instantiate a trainer
     T = Training(args, outpath, dtype=dtype)
     
-    patches_list = get_patch(args)
+    # get a list of patches organized as dictionaries with image, mask and name fields
+    patches = extract_patches(args)
     
-    for i, patch in enumerate(patches_list):
-        imgshape = patch['img'].shape
-        print(colored('The image shape is %s ' % (imgshape,), 'green'))
-        
-        T.build_input(imgshape)
+    # optimize for each patch
+    for i, patch in enumerate(patches):
+        print(colored('\nThe image shape is %s' % str(patch['image'].shape), 'cyan'))
+        T.build_input(patch['image'].shape)
         T.build_model()
         std = T.load_data(patch)
-        print('the std of input image is %f' % std)
+        print(colored('the std of input image is %f, ' % std, 'cyan'), end="")
         if np.isclose(std, 0.):  # all the data are corrupted
-            print('skipping...')
+            print(colored('skipping...', 'cyan'))
             T.out_img = T.img * T.mask
             T.elapsed = 0.
         else:

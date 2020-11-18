@@ -43,7 +43,7 @@ def init_weights(net, init_type='normal', init_gain=0.02):
     
     if init_type != 'default':
         net.apply(init_func)
-        print(colored('initialize network with %s' % init_type, 'red'))
+        print(colored('Parameters initialized with %s' % init_type, 'cyan'))
 
 
 def fill_noise(x, noise_type):

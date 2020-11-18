@@ -1,6 +1,6 @@
-
-.DS_Store
-
-.idea/
-
 __pycache__/
+.DS_Store
+.results/
+.idea/
+*.pdf
+*.sh

@@ -1,11 +1,62 @@
 from typing import Dict, List, Optional, Union
+from pathlib import Path
 import os
 import numpy as np
-from utils import add_rand_mask
+import utils as u
+
+
+def extract_patches(args) -> List[dict]:
+    original = np.load(os.path.join(args.imgdir, args.imgname), allow_pickle=True)
+    corrupted = np.load(os.path.join(args.imgdir, args.maskname), allow_pickle=True)
+    
+    assert original.shape == corrupted.shape, "Original and Corrupted data must have the same dimension"
+    assert original.ndim in [2, 3], "Data volumes have to be 2D or 3D"
+    
+    corrupted[np.isnan(corrupted) == False] = 1
+    corrupted[np.isnan(corrupted) == True] = 0
+
+    patch_shape = [args.patch_shape[d] if args.patch_shape[d] != -1 else original.shape[d] for d in range(original.ndim)]
+    if args.datadim == "2.5d":
+        patch_shape[-1] = args.imgchannel
+    
+    patch_stride = [args.patch_stride[d] if args.patch_stride[d] != -1 else patch_shape[d] for d in range(len(patch_shape))]
+
+    pe = u.PatchExtractor(dim=tuple(patch_shape), stride=tuple(patch_stride))
+
+    if args.datadim == "2.5d":
+        if args.slice == 'XY':  # we start from (t, x, y) and we want (x, y, t) for t becomes c
+            original = original.transpose((1, 2, 0))
+            corrupted = corrupted.transpose((1, 2, 0))
+        elif args.slice == 'YT':  # we start from (t, x, y) and we want (t, y, c) for x becomes c
+            original = original.transpose((0, 2, 1))
+            corrupted = original.transpose((0, 2, 1))
+        else:  # we already are in (t, x, y), great!
+            pass
+        final_shape = (-1,) + pe.dim
+    else:
+        final_shape = (-1,) + pe.dim + (1,)
+
+    patches_img = pe.extract(original).reshape(final_shape)
+    patches_msk = pe.extract(corrupted).reshape(final_shape)
+        
+    outputs = []
+    num_patches = patches_img.shape[0]
+    _zeros = u.ten_digit(num_patches)
+    
+    for p in range(num_patches):
+        
+        i = patches_img[p]
+        m = patches_msk[p]
+        
+        if args.adirandel > 0:
+            m = u.add_rand_mask(m, args.adirandel)
+            
+        outputs.append({'image': i, 'mask': m, 'name': str(p).zfill(_zeros) + '.npy'})
+    
+    return outputs
 
 
 def _get_patch_2d(args) -> List[dict]:
-
     img_dir = args.imgdir
     imgnames = args.imgname
     masknames = args.maskname
@@ -32,9 +83,9 @@ def _get_patch_2d(args) -> List[dict]:
         mask[np.isnan(mask) == True] = 0
         
         if args.adirandel > 0:
-            mask = add_rand_mask(mask, args.adirandel)
+            mask = u.add_rand_mask(mask, args.adirandel)
         
-        out['img'] = img * args.gain[i]
+        out['image'] = img * args.gain[i]
         out['name'] = maskname
         out['mask'] = mask
         outputs.append(out)
@@ -43,14 +94,13 @@ def _get_patch_2d(args) -> List[dict]:
 
 
 def _get_patch_2_5d(args) -> List[dict]:
-
     img_dir = args.imgdir
-    imgname = args.imgname[0]
-    maskname = args.maskname[0]
+    imgname = args.imgname
+    maskname = args.maskname
     
     perc = args.imgchannel
     
-    img = np.load(os.path.join(img_dir, imgname), allow_pickle=True) * args.gain[0]
+    img = np.load(os.path.join(img_dir, imgname), allow_pickle=True) * args.gain
     mask = np.load(os.path.join(img_dir, maskname), allow_pickle=True)
     
     if args.slice == 'XY':
@@ -67,9 +117,9 @@ def _get_patch_2_5d(args) -> List[dict]:
     mask_np[np.isnan(mask_np) == True] = 0
     
     if args.adirandel > 0:
-        mask_np = add_rand_mask(mask_np, args.adirandel)
+        mask_np = u.add_rand_mask(mask_np, args.adirandel)
     
-    outputs = [{'img' : img_np[..., i: i + perc],
+    outputs = [{'image' : img_np[..., i: i + perc],
                 'mask': mask_np[..., i: i + perc],
                 'name': str(i) + '_' + args.slice + '.npy'}
                for i in range(0, img_np.shape[-1], perc)]
@@ -78,10 +128,10 @@ def _get_patch_2_5d(args) -> List[dict]:
 
 
 def _get_patch_3d(args) -> List[dict]:
-
+    _dataset = args.imgdir + args.imgname + args.maskname
     img_dir = args.imgdir
-    imgname = args.imgname[0]
-    maskname = args.maskname[0]
+    imgname = args.imgname
+    maskname = args.maskname
     
     img = np.load(os.path.join(img_dir, imgname), allow_pickle=True)
     mask = np.load(os.path.join(img_dir, maskname), allow_pickle=True)
@@ -90,22 +140,22 @@ def _get_patch_3d(args) -> List[dict]:
     mask[np.isnan(mask) == True] = 0
     
     if args.adirandel > 0:
-        mask = add_rand_mask(mask, args.adirandel)
+        mask = u.add_rand_mask(mask, args.adirandel)
     pad_w = args.padwidth
     
     if pad_w > 0:
         img = np.pad(img, ((pad_w, pad_w), (pad_w, pad_w), (pad_w, pad_w)), mode='edge')
         mask = np.pad(mask, ((pad_w, pad_w), (pad_w, pad_w), (pad_w, pad_w)), mode='constant', constant_values=1)
     
-    if 'hyperbolic' in imgname.lower():
+    if 'hyperbolic' in _dataset.lower():
         segt = [(0, 256), (128, 384), (256, 512)]
         segx = [(0, 128 + 2 * pad_w)]
         segy = [(0, 128 + 2 * pad_w)]
-    elif 'marmousi' in imgname.lower():
+    elif 'marmousi' in _dataset.lower():
         segt = [(0, 104), (100, 204), (196, 300)]
         segx = [(0, 132), (124, 256)]
         segy = [(0, 132), (124, 256)]
-    elif 'f3' in imgname.lower():
+    elif 'f3' in _dataset.lower():
         segt = [(0, 80), (64, 144), (128, 208), (192, 272), (256, 336), (320, 400), (368, 448)]
         segx = [(0, 80), (48, 128)]
         segy = [(0, 80), (48, 128)]
@@ -116,13 +166,12 @@ def _get_patch_3d(args) -> List[dict]:
     
     segs = [[t[0], t[1], x[0], x[1], y[0], y[1]] for t in segt for x in segx for y in segy]
     
-    if len(args.gain) == 1 and len(segs) != len(args.gain):
-        args.gain = [args.gain[0]] * len(segs)
+    gains = [args.gain] * len(segs)
     
-    imgs = [img[x[0]:x[1], x[2]:x[3], x[4]:x[5]] * y for x, y in zip(segs, args.gain)]
+    imgs = [img[x[0]:x[1], x[2]:x[3], x[4]:x[5]] * y for x, y in zip(segs, gains)]
     masks = [mask[x[0]:x[1], x[2]:x[3], x[4]:x[5]] for x in segs]
     
-    outputs = [{'img' : np.expand_dims(imgs[i], -1),
+    outputs = [{'image' : np.expand_dims(imgs[i], -1),
                 'mask': np.expand_dims(masks[i], -1),
                 'name': str(i) + '.npy'}
                for i in range(len(imgs))]
@@ -132,7 +181,6 @@ def _get_patch_3d(args) -> List[dict]:
 
 
 def _get_logging(args) -> dict:
-    
     img_dir = args.imgdir
     imgnames = args.imgname
     masknames = args.maskname
@@ -160,7 +208,7 @@ def _get_logging(args) -> dict:
         masks.append(mask)
         i += 1
     output = {'img_name': img_dir.split('/')[-1],
-              'img'     : np.stack(imgs, axis=0),
+              'image'   : np.stack(imgs, axis=0),
               'mask'    : np.stack(masks, axis=0)}
     return output
 

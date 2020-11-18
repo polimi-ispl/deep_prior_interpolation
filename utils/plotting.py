@@ -66,7 +66,7 @@ def explode_volume(volume: np.ndarray, t: int = 0, x: int = 0, y: int = 0,
     ax_top.set_ylabel("y [m]")
     
     if filename is not None:
-        plt.savefig(filename)
+        plt.savefig(filename, bbox_inches='tight', dpi=300)
     plt.show()
 
 
