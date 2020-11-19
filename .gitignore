@@ -1,6 +1,12 @@
 __pycache__/
 .DS_Store
-.results/
+results/
 .idea/
 *.pdf
 *.sh
+!/new3dseg.ipynb
+!/prepare_marmousi3d.ipynb
+!/main_rnn.py
+main_rnn.py
+new3dseg.ipynb
+prepare_marmousi3d.ipynb
