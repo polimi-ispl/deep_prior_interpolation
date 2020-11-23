@@ -22,6 +22,8 @@ def parse_arguments() -> Namespace:
                         help='The percent of addictive random deleting samples')
     parser.add_argument('--padwidth', type=int, required=False, default=0,
                         help='The padding width to the process data using edge mode')
+    parser.add_argument('--use_pe', action='store_true', default=False,
+                        help='Use PatchExtractor instead of hand-written Fantong function')
     parser.add_argument('--patch_shape', nargs='+', type=int, required=False,
                         help="Patch shape to be processed (it can handle 2D, 2.5D, 3D)")
     parser.add_argument('--patch_stride', nargs='+', type=int, required=False,
@@ -57,6 +59,8 @@ def parse_arguments() -> Namespace:
     parser.add_argument('--netdir', type=str, required=False, default='',
                         help='Path for saving the optimized model')
     # training parameter
+    parser.add_argument('--loss', type=str, required=False, choices=['mae', 'mse'], default='mae',
+                        help='Loss function to be used.')
     parser.add_argument('--epochs', '-e', type=int, required=False, default=2001,
                         help='Number of optimization iterations')
     parser.add_argument('--lr', type=float, default=1e-3, required=False,
@@ -81,7 +85,6 @@ def parse_arguments() -> Namespace:
                         help='Update mask step')
     
     args = parser.parse_args()
-    assert len(args.imgname) == len(args.maskname), "Images and Masks have to be the same number"
     if args.datadim == "3d" and args.upsample == "bilinear":
         args.upsample = "trilinear"
     
@@ -90,5 +93,6 @@ def parse_arguments() -> Namespace:
             args.patch_shape = [-1, -1]
         else:
             args.patch_shape = [-1, -1, -1]
-            
+    if args.patch_stride is None:
+        args.patch_stride = args.patch_shape
     return args

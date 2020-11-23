@@ -156,13 +156,12 @@ def set_seed(seed=0):
     """
         Set the seed of random.
     """
-    torch.backends.cudnn.enabled = True
-    torch.backends.cudnn.benchmark = True
-    dtype = torch.cuda.FloatTensor
-
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
+    
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = True
 
 

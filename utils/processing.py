@@ -21,7 +21,15 @@ def denormalize(image, time_step, velo):
     return image / gain
 
 
+def bool2bin(in_content: np.ndarray, logic: bool = True):
+    temp = in_content.copy()
+    temp[np.isnan(temp) == False] = 1 if logic else 0
+    temp[np.isnan(temp) == True] = 0 if logic else 1
+    return temp
+
+
 __all__ = [
     "normalize",
     "denormalize",
+    "bool2bin",
 ]

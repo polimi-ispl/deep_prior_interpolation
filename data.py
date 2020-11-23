@@ -1,59 +1,7 @@
-from typing import Dict, List, Optional, Union
-from pathlib import Path
+from typing import List
 import os
 import numpy as np
 import utils as u
-
-
-def extract_patches(args) -> List[dict]:
-    original = np.load(os.path.join(args.imgdir, args.imgname), allow_pickle=True)
-    corrupted = np.load(os.path.join(args.imgdir, args.maskname), allow_pickle=True)
-    
-    assert original.shape == corrupted.shape, "Original and Corrupted data must have the same dimension"
-    assert original.ndim in [2, 3], "Data volumes have to be 2D or 3D"
-    
-    corrupted[np.isnan(corrupted) == False] = 1
-    corrupted[np.isnan(corrupted) == True] = 0
-
-    patch_shape = [args.patch_shape[d] if args.patch_shape[d] != -1 else original.shape[d] for d in range(original.ndim)]
-    if args.datadim == "2.5d":
-        patch_shape[-1] = args.imgchannel
-    
-    patch_stride = [args.patch_stride[d] if args.patch_stride[d] != -1 else patch_shape[d] for d in range(len(patch_shape))]
-
-    pe = u.PatchExtractor(dim=tuple(patch_shape), stride=tuple(patch_stride))
-
-    if args.datadim == "2.5d":
-        if args.slice == 'XY':  # we start from (t, x, y) and we want (x, y, t) for t becomes c
-            original = original.transpose((1, 2, 0))
-            corrupted = corrupted.transpose((1, 2, 0))
-        elif args.slice == 'YT':  # we start from (t, x, y) and we want (t, y, c) for x becomes c
-            original = original.transpose((0, 2, 1))
-            corrupted = original.transpose((0, 2, 1))
-        else:  # we already are in (t, x, y), great!
-            pass
-        final_shape = (-1,) + pe.dim
-    else:
-        final_shape = (-1,) + pe.dim + (1,)
-
-    patches_img = pe.extract(original).reshape(final_shape)
-    patches_msk = pe.extract(corrupted).reshape(final_shape)
-        
-    outputs = []
-    num_patches = patches_img.shape[0]
-    _zeros = u.ten_digit(num_patches)
-    
-    for p in range(num_patches):
-        
-        i = patches_img[p]
-        m = patches_msk[p]
-        
-        if args.adirandel > 0:
-            m = u.add_rand_mask(m, args.adirandel)
-            
-        outputs.append({'image': i, 'mask': m, 'name': str(p).zfill(_zeros) + '.npy'})
-    
-    return outputs
 
 
 def _get_patch_2d(args) -> List[dict]:
@@ -237,4 +185,61 @@ def get_patch(args) -> List[dict] or dict:
         outputs = _get_logging(args)
     else:
         raise ValueError('The datadim in the args must be 2d, 3d, 4d')
+    return outputs
+
+
+def _get_patch_extractor(in_shape, patch_shape, patch_stride, datadim, imgchannel=1) -> u.PatchExtractor:
+    ndim = len(in_shape)
+    patch_shape = [patch_shape[d] if patch_shape[d] != -1 else in_shape[d] for d in range(ndim)]
+    if datadim == "2.5d":
+        patch_shape[-1] = imgchannel
+    
+    patch_stride = [patch_stride[d] if patch_stride[d] != -1 else patch_shape[d] for d in range(len(patch_shape))]
+    
+    return u.PatchExtractor(dim=tuple(patch_shape), stride=tuple(patch_stride))
+
+
+def extract_patches(args) -> List[dict]:
+    original = np.load(os.path.join(args.imgdir, args.imgname), allow_pickle=True)
+    corrupted = np.load(os.path.join(args.imgdir, args.maskname), allow_pickle=True)
+    
+    assert original.shape == corrupted.shape, "Original and Corrupted data must have the same dimension"
+    assert original.ndim in [2, 3], "Data volumes have to be 2D or 3D"
+    
+    corrupted = u.bool2bin(corrupted)
+    
+    if args.datadim == "2.5d":
+        if args.slice == 'XY':  # we start from (t, x, y) and we want (x, y, t) for t becomes c
+            original = original.transpose((1, 2, 0))
+            corrupted = corrupted.transpose((1, 2, 0))
+        elif args.slice == 'YT':  # we start from (t, x, y) and we want (t, y, x) for x becomes c
+            original = original.transpose((0, 2, 1))
+            corrupted = original.transpose((0, 2, 1))
+        else:  # we already are in (t, x, y), great!
+            pass
+    
+    pe = _get_patch_extractor(original.shape, args.patch_shape, args.patch_stride, args.datadim, args.imgchannel)
+    
+    if args.datadim == "2.5d":
+        final_shape = (-1,) + pe.dim
+    else:
+        final_shape = (-1,) + pe.dim + (1,)
+    
+    patches_img = pe.extract(original).reshape(final_shape)
+    patches_msk = pe.extract(corrupted).reshape(final_shape)
+    
+    outputs = []
+    num_patches = patches_img.shape[0]
+    _zeros = u.ten_digit(num_patches)
+    
+    for p in range(num_patches):
+        
+        i = patches_img[p]
+        m = patches_msk[p]
+        
+        if args.adirandel > 0:
+            m = u.add_rand_mask(m, args.adirandel)
+        
+        outputs.append({'image': i * args.gain, 'mask': m, 'name': str(p).zfill(_zeros)})
+    
     return outputs
