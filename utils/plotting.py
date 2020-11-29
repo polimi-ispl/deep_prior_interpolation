@@ -11,19 +11,27 @@ def clim(in_content, ratio=95):
     return -c, c
 
 
-def explode_volume(volume: np.ndarray, t: int = 0, x: int = 0, y: int = 0,
+def explode_volume(volume: np.ndarray, t: int = None, x: int = None, y: int = None,
                    figsize: tuple = (8, 8), cmap: str = 'seismic', clipval: tuple = None, p: int = 98,
-                   tlim: tuple = None, xlim: tuple = None, ylim: tuple = None,
+                   tlim: tuple = None, xlim: tuple = None, ylim: tuple = None, labels : list = ('[s]', '[km]', '[km]'),
                    linespec: dict = None, filename: str or Path = None) -> plt.figure:
     if linespec is None:
         linespec = dict(ls='-', lw=1, color='gold')
     nt, nx, ny = volume.shape
+    t_label, x_label, y_label = labels
     
+    t = t if t is not None else nt//2
+    x = x if x is not None else nx//2
+    y = y if y is not None else ny//2
+
     if tlim is None:
+        t_label = "samples"
         tlim = (0, volume.shape[0])
     if xlim is None:
+        x_label = "samples"
         xlim = (0, volume.shape[1])
     if ylim is None:
+        y_label = "samples"
         ylim = (0, volume.shape[2])
     
     # vertical lines for coordinates reference
@@ -60,13 +68,13 @@ def explode_volume(volume: np.ndarray, t: int = 0, x: int = 0, y: int = 0,
     # labels
     ax_top.tick_params(axis="x", labelbottom=False)
     ax_right.tick_params(axis="y", labelleft=False)
-    ax.set_xlabel("x [m]")
-    ax.set_ylabel("t [ms]")
-    ax_right.set_xlabel("y [m]")
-    ax_top.set_ylabel("y [m]")
+    ax.set_xlabel("x " + x_label)
+    ax.set_ylabel("t " + t_label)
+    ax_right.set_xlabel("y " + y_label)
+    ax_top.set_ylabel("y " + y_label)
     
     if filename is not None:
-        plt.savefig(filename, bbox_inches='tight', dpi=300)
+        plt.savefig(filename, bbox_inches='tight', dpi=150)
     plt.show()
 
 
@@ -125,9 +133,38 @@ def seismograms(in_content: np.ndarray, ax, tlim: tuple = None, xlim: tuple = No
     ax.grid(b=True, which='major', axis='y')
 
 
+def plot_gather(gather: np.ndarray, figsize: tuple = (8, 8), cmap: str = 'bone',
+                clipval: tuple = None, p: int = 98, tlim: tuple = None, xlim: tuple = None,
+                labels: list = ('[s]', '[km]'), filename: str or Path = None) -> plt.figure:
+   
+    t_label, x_label = labels
+    
+    if tlim is None:
+        t_label = "samples"
+        tlim = (0, gather.shape[0])
+    if xlim is None:
+        x_label = "samples"
+        xlim = (0, gather.shape[1])
+
+    # instantiate plots
+    plt.figure(figsize=figsize)
+
+    plt.imshow(gather, cmap=cmap, aspect='auto',
+               clim=clipval if clipval is not None else clim(gather, p),
+               extent=[xlim[0], xlim[1], tlim[1], tlim[0]])
+
+    plt.xlabel("x " + x_label)
+    plt.ylabel("t " + t_label)
+
+    if filename is not None:
+        plt.savefig(filename, bbox_inches='tight', dpi=150)
+    plt.show()
+
+
 __all__ = [
     "clim",
     "explode_volume",
     "gif_from_array",
     "seismograms",
+    "plot_gather",
 ]
