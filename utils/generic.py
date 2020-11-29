@@ -1,10 +1,14 @@
 from typing import Dict, List, Optional, Union
 from pathlib import Path
-from math import floor, log10
+from math import floor, log10, ceil, log2
 import random
 import string
 import json
 from argparse import Namespace
+
+
+def nextpow2(x: int) -> int:
+    return ceil(log2(abs(x)))
 
 
 def random_code(n: int = 6) -> str:
@@ -24,6 +28,14 @@ def sec2time(seconds: float) -> str:
     return timestamp
 
 
+def time2sec(timestamp: str) -> int:
+    h, m, s = timestamp.split(":")
+    h = int(h.replace("h", "")) * 3600
+    m = int(m.replace("m", "")) * 60
+    s = int(s.replace("s", ""))
+    return h + m + s
+
+
 def read_args(filename: Union[str, Path]) -> Namespace:
     args = Namespace()
     with open(filename, 'r') as fp:
@@ -37,9 +49,11 @@ def write_args(filename: Union[str, Path], args: Namespace, indent: int = 2) -> 
 
 
 __all__ = [
+    "nextpow2",
     "random_code",
     "ten_digit",
     "sec2time",
+    "time2sec",
     "read_args",
     "write_args",
 ]
