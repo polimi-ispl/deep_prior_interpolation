@@ -3,7 +3,7 @@ from argparse import ArgumentParser, Namespace
 
 def parse_arguments() -> Namespace:
     parser = ArgumentParser()
-    # dataset parameter
+    # dataset
     parser.add_argument('--imgdir', type=str, required=True, default='./datasets/',
                         help='Directory containing the processed data')
     parser.add_argument('--outdir', type=str, required=False,
@@ -47,7 +47,7 @@ def parse_arguments() -> Namespace:
     parser.add_argument('--inputdepth', type=int, required=False, default=64,
                         help='Depth of the input noise tensor')
     parser.add_argument('--upsample', type=str, required=False, default='nearest',
-                        choices=['nearest', 'bilinear', 'trilinear'],
+                        choices=['nearest', 'linear'],
                         help="Network's upgoing deconvolution strategy")
     parser.add_argument('--inittype', type=str, required=False, default='xavier',
                         choices=['xavier', 'normal', 'default', 'kaiming', 'orthogonal'],
@@ -58,10 +58,26 @@ def parse_arguments() -> Namespace:
                         help='Save the optimized model to disk')
     parser.add_argument('--netdir', type=str, required=False, default='',
                         help='Path for saving the optimized model')
-    # training parameter
+    # input noise
+    parser.add_argument('--param_noise', action='store_false',
+                        help='Add normal noise to the parameters every epoch')
+    parser.add_argument('--reg_noise_std', type=float, required=False, default=0.03,
+                        help='Standard deviation of the normal noise to be added to the input every epoch')
+    parser.add_argument('--noise_dist', type=str, default='n', required=False, choices=['n', 'u', 'c'],
+                        help='Type of noise for the input tensor [(n)ormal, (u)niform, (c)auchy]')
+    parser.add_argument('--noise_std', type=float, default=.1, required=False,
+                        help='Standard deviation of the noise for the input tensor')
+    parser.add_argument('--data_forgetting_factor', type=int, default=0, required=False,
+                        help='Duration of additional decimated data to the input noise tensor')
+    
+    parser.add_argument('--filter_noise_with_data', action='store_true', default=False,
+                        help='Filter input noise tensor with the decimated data spectrum')
+    parser.add_argument('--filter_noise_with_wavelet', action='store_true', default=False,
+                        help='Filter input noise tensor with the wavelet bandwidth')
+    # training
     parser.add_argument('--loss', type=str, required=False, choices=['mae', 'mse'], default='mae',
                         help='Loss function to be used.')
-    parser.add_argument('--epochs', '-e', type=int, required=False, default=2001,
+    parser.add_argument('--epochs', '-e', '--iter', type=int, required=False, default=2001,
                         help='Number of optimization iterations')
     parser.add_argument('--lr', type=float, default=1e-3, required=False,
                         help='Learning Rate for Adam optimizer')
@@ -69,24 +85,18 @@ def parse_arguments() -> Namespace:
                         help='Number of epochs every which to save the results')
     parser.add_argument('--loss_max', type=float, default=30., required=False,
                         help='Maximum total loss for saving the image.')
-    parser.add_argument('--param_noise', action='store_false',
-                        help='Add normal noise to the parameters every epoch')
-    parser.add_argument('--reg_noise_std', type=float, required=False, default=0.03,
-                        help='Standard deviation of the normal noise to be added to the input every epoch')
-    parser.add_argument('--noise_dist', type=str, default='u', required=False, choices=['u', 'n'],
-                        help='Type of noise for the input tensor [normal(n), uniform(u)]')
-    parser.add_argument('--noise_std', type=float, default=.1, required=False,
-                        help='Standard deviation of the noise for the input tensor')
     parser.add_argument('--gain_sym', type=float, default=0.01, required=False,
                         help='The weight of the symmetry loss')
     parser.add_argument('--threshold', type=int, default=10000, required=False,
                         help='Update mask when iteration larger than threshold')
     parser.add_argument('--update_step', type=int, default=200, required=False,
                         help='Update mask step')
+    parser.add_argument('--start_from_prev', action='store_true', default=False,
+                        help='Start training from previous patch')
     
     args = parser.parse_args()
-    if args.datadim == "3d" and args.upsample == "bilinear":
-        args.upsample = "trilinear"
+    if args.upsample == "linear":
+        args.upsample = "trilinear" if args.datadim == "3d" else "bilinear"
     
     if args.patch_shape is None:
         if args.datadim == '2d':
