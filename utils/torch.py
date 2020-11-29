@@ -6,6 +6,7 @@ from GPUtil import getFirstAvailable, getGPUs
 from termcolor import colored
 import os
 from cv2 import dilate
+from .generic import nextpow2
 
 
 def init_weights(net, init_type='normal', init_gain=0.02):
@@ -43,21 +44,26 @@ def init_weights(net, init_type='normal', init_gain=0.02):
     
     if init_type != 'default':
         net.apply(init_func)
-        print(colored('Parameters initialized with %s' % init_type, 'cyan'))
+        print(colored('parameters initialized with %s' % init_type, 'cyan'))
 
 
-def fill_noise(x, noise_type):
-    """Fills tensor `x` with noise of type `noise_type`."""
+def get_noise(shape: tuple or list, noise_type: str) -> torch.Tensor:
+    """Build a tensor of a given shape with noise of type `noise_type`."""
+    x = torch.zeros(shape)
+    
     if noise_type == 'u':
         x.uniform_()
     elif noise_type == 'n':
         x.normal_()
+    elif noise_type == 'c':
+        x.cauchy_()
     else:
-        assert False
+        raise ValueError("Noise type has to be one of [u, n, c]")
+    return x
 
 
-def get_noise(input_depth, spatial_size, method='noise', noise_type='u', var=1. / 10):
-    """Returns a pytorch.Tensor of size (1 x `input_depth` x `spatial_size[0]` x `spatial_size[1]`) 
+def build_noise_tensor(input_depth, spatial_size, method='noise', noise_type='u', var=1. / 10):
+    """Returns a pytorch.Tensor of size (1 x `input_depth` x `spatial_size[0]` x `spatial_size[1]`)
     initialized in a specific way.
     Args:
         input_depth: number of channels in the input noise tensor.
@@ -70,46 +76,51 @@ def get_noise(input_depth, spatial_size, method='noise', noise_type='u', var=1. 
         spatial_size = (spatial_size, spatial_size)
     if method == 'noise':
         shape = [1, input_depth, spatial_size[0], spatial_size[1]]
-        net_input = torch.zeros(shape)
-        
-        fill_noise(net_input, noise_type)
-        net_input *= var
     elif method == 'noise3d':
         assert len(spatial_size) == 3
         shape = [1, input_depth, spatial_size[0], spatial_size[1], spatial_size[2]]
-        net_input = torch.zeros(shape)
-        
-        fill_noise(net_input, noise_type)
-        net_input *= var
     else:
         assert False
+    
+    net_input = get_noise(shape, noise_type) * var
+
     return net_input
 
 
-def np_to_torch(img_np):
-    '''Converts image in numpy.array to torch.Tensor.
+def filter_tensor(in_content: torch.Tensor, filter: torch.Tensor, nfft: int = None) -> torch.Tensor:
+    if nfft is None:
+        nfft = nextpow2(max(in_content.shape[2], filter.shape[0]))
+    
+    in_content_F = torch.fft.fft(in_content, n=nfft, dim=2, norm='ortho')
+    filter_F = torch.fft.fft(filter, n=nfft, dim=0, norm='ortho')
+    filtered = in_content_F * filter_F.repeat((in_content_F.shape[0], filter_F.shape[0]) + in_content_F.shape[2:])
+    return filtered
 
+
+def np_to_torch(in_content: np.ndarray) -> torch.Tensor:
+    """
+    Converts image in numpy.array to torch.Tensor.
     From C x W x H [0..1] to  C x W x H [0..1]
-    '''
-    return torch.from_numpy(img_np)
+    """
+    return torch.from_numpy(in_content)
 
 
-def torch_to_np(img_var):
-    '''Converts an image in torch.Tensor format to np.array.
-
+def torch_to_np(in_content: torch.Tensor) -> np.ndarray:
+    """
+    Converts an image in torch.Tensor format to np.array.
     From 1 x C x W x H [0..1] to  C x W x H [0..1]
-    '''
-    return img_var.detach().cpu().numpy()[0]
+    """
+    return in_content.detach().cpu().numpy()[0]
 
 
 def get_params(opt_over, net, net_input, downsampler=None):
-    '''Returns parameters that we want to optimize over.
+    """Returns parameters that we want to optimize over.
 
     Args:
         opt_over: comma separated list, e.g. "net,input" or "net"
         net: network
         net_input: torch.Tensor that stores input `z`
-    '''
+    """
     opt_over_list = opt_over.split(',')
     params = []
     
@@ -150,6 +161,11 @@ def set_gpu(id=-1):
         
         print(colored('GPU selected: %d - %s' % (device, name), 'yellow'))
         os.environ["CUDA_VISIBLE_DEVICES"] = str(device)
+
+
+def get_gpu_name(id: int) -> str:
+    name = getGPUs()[id].name
+    return '%s (%d)' % (name, id)
 
 
 def set_seed(seed=0):
@@ -230,12 +246,12 @@ class MaskUpdate:
 
 __all__ = [
     "init_weights",
-    "fill_noise",
     "get_noise",
     "np_to_torch",
     "torch_to_np",
     "get_params",
     "set_gpu",
+    "get_gpu_name",
     "set_seed",
     "add_rand_mask",
     "dilate_mask",
