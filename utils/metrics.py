@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from utils.generic import ten_digit
 
 
 def snr(output: np.ndarray or torch.Tensor,
@@ -44,10 +45,13 @@ def pcorr(output: np.ndarray or torch.Tensor,
 
 
 class History:
-    def __init__(self):
+    def __init__(self, epochs):
         self.loss = []
         self.snr = []
         self.pcorr = []
+        self.lr = []
+        self.msg = "Iter %s, Loss = %.2e, SNR = %+.2f dB, PCORR = %+.2f %%"
+        self.zfill = ten_digit(epochs)
     
     def __getitem__(self, item):
         return self.loss[item], self.snr[item], self.pcorr[item]
@@ -65,11 +69,17 @@ class History:
         self.pcorr.append(p)
     
     def __len__(self):
-        assert len(self.loss) == len(self.snr) == len(self.pcorr)
+        assert len(self.loss) == len(self.snr) == len(self.pcorr) == len(self.lr)
         return len(self.loss)
     
+    def log_message(self, idx):
+        return self.msg % (str(idx + 1).zfill(self.zfill),
+                           self.loss[idx], self.snr[idx], self.pcorr[idx] * 100)
+        
     def __str__(self):
-        return "Loss : " + str(self.loss) + "\nSNR  : " + str(self.snr) + "\nPCORR: " + str(self.pcorr)
+        return   "Loss : " + str(self.loss) + \
+               "\nSNR  : " + str(self.snr) + \
+               "\nPCORR: " + str(self.pcorr)
         
     def __repr__(self):
         return self.__str__()

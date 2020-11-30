@@ -81,18 +81,24 @@ def parse_arguments() -> Namespace:
                         help='Number of optimization iterations')
     parser.add_argument('--lr', type=float, default=1e-3, required=False,
                         help='Learning Rate for Adam optimizer')
-    parser.add_argument('--save_every', type=int, default=10000, required=False,
+    parser.add_argument('--lr_factor', type=float, default=.9, required=False,
+                        help='LR reduction for Plateau scheduler.')
+    parser.add_argument('--lr_thresh', type=float, default=1e-4, required=False,
+                        help='LR threshold for Plateau scheduler.')
+    parser.add_argument('--lr_patience', type=int, default=10, required=False,
+                        help='LR patience for Plateau scheduler.')
+    parser.add_argument('--save_every', type=int, required=False,
                         help='Number of epochs every which to save the results')
-    parser.add_argument('--loss_max', type=float, default=30., required=False,
-                        help='Maximum total loss for saving the image.')
-    parser.add_argument('--gain_sym', type=float, default=0.01, required=False,
-                        help='The weight of the symmetry loss')
-    parser.add_argument('--threshold', type=int, default=10000, required=False,
+    parser.add_argument('--mask_th', type=int, default=10000, required=False,
                         help='Update mask when iteration larger than threshold')
-    parser.add_argument('--update_step', type=int, default=200, required=False,
+    parser.add_argument('--mask_step', type=int, default=200, required=False,
                         help='Update mask step')
     parser.add_argument('--start_from_prev', action='store_true', default=False,
                         help='Start training from previous patch')
+    parser.add_argument('--reduce_lr', action='store_true', default=False,
+                        help='Use ReduceLROnPlateau scheduler')
+    parser.add_argument('--earlystop_patience', type=int, required=False,
+                        help="Early stopping patience")
     
     args = parser.parse_args()
     if args.upsample == "linear":
@@ -105,4 +111,8 @@ def parse_arguments() -> Namespace:
             args.patch_shape = [-1, -1, -1]
     if args.patch_stride is None:
         args.patch_stride = args.patch_shape
+    
+    if args.earlystop_patience is None:
+        args.earlystop_patience = args.epochs
+    
     return args

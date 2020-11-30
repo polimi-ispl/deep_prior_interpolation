@@ -17,19 +17,21 @@ u.set_seed()
 
 class Training:
     def __init__(self, args, outpath, dtype=torch.cuda.FloatTensor):
+    
         self.args = args
         self.dtype = dtype
         self.outpath = outpath
         if args.loss == 'mse':
-            self.lossfunc = torch.nn.MSELoss().type(self.dtype)
+            self.loss_fn = torch.nn.MSELoss().type(self.dtype)
         else:
-            self.lossfunc = torch.nn.L1Loss().type(self.dtype)
+            self.loss_fn = torch.nn.L1Loss().type(self.dtype)
         self.elapsed = None
         self.iiter = 0
-        self.saving_interval = 0
-        self.loss_min = self.args.loss_max
+        self.iter_to_be_saved = list(range(0, self.args.epochs, int(self.args.save_every))) \
+                                if self.args.save_every is not None else [0]
+        self.loss_min = None
         self.outchannel = args.imgchannel
-        self.history = u.History()
+        self.history = u.History(self.args.epochs)
         
         self.imgpath = None
         self.image_name = None
@@ -37,9 +39,8 @@ class Training:
         self.img_ = None
         self.mask = None
         self.mask_ = None
-        self.out = None
-        self.th = args.threshold
-        self.step = args.update_step
+        self.out_best = None
+        self.out_old = None
         
         self.zfill = u.ten_digit(self.args.epochs)
         
@@ -56,6 +57,10 @@ class Training:
         self.net = None
         self.parameters = None
         self.num_params = None
+        self.optimizer = None
+        # stop after no improvements greater than 1% of the previous loss
+        self.stopper = u.EarlyStopping(patience=self.args.earlystop_patience,
+                                       min_delta=1, percentage=True)
     
     def build_input(self):
         # build a noise tensor
@@ -172,25 +177,25 @@ class Training:
         if self.mask.shape != self.img.shape:
             raise ValueError('The loaded mask shape has to be', self.img.shape)
         
-        sha = tuple(range(len(self.img.shape)))
+        sha = tuple(range(self.img.ndim))
         re_sha = sha[-1:] + sha[:-1]
         
         self.img_ = u.np_to_torch(np.transpose(self.img, re_sha)[np.newaxis]).type(self.dtype)
         self.mask_ = u.np_to_torch(np.transpose(self.mask, re_sha)[np.newaxis]).type(self.dtype)
         
-        self.mask_update = u.MaskUpdate(self.mask_, self.th, self.step)
-        
-        # compute std for skipping all-zeros patches
+        self.mask_update_fn = u.MaskUpdate(self.mask_, self.args.mask_th, self.args.mask_step)
+
+        # compute std on coarse data for skipping all-zeros patches
         input_std = torch.std(self.img_ * self.mask_).item()
         return input_std
     
     def optimization_loop(self):
-        # Adding normal noise to the learned parameters.
+        # adding normal noise to the learned parameters
         if self.args.param_noise:
             for n in [x for x in self.net.parameters() if len(x.size()) in [4, 5]]:
                 n = n + n.detach().clone().normal_() * n.std() * 0.02
         
-        # Adding normal noise to the input noise.
+        # adding normal noise to the input tensor
         input_ = self.input_old
         if self.args.reg_noise_std > 0:
             input_ = self.input_old + (self.add_noise_.normal_() * self.args.reg_noise_std)
@@ -201,45 +206,40 @@ class Training:
             self.input_list.append(u.torch_to_np(input_[0, 0]))
         
         # compute output
-        output_ = self.net(input_)
-        
-        if self.iiter % self.step == 0:
-            self.output_old = output_.clone().detach()
+        out_ = self.net(input_)
+        if self.iiter % self.args.mask_step == 0:
+            self.out_old = out_.clone().detach()
         
         # compute the new mask and new related input
-        mask_ = self.mask_update.update(self.iiter)
-        image_ = self.img_ * self.mask_ + (mask_ - self.mask_) * self.output_old
+        mask_ = self.mask_update_fn.update(self.iiter)
+        image_ = self.img_ * self.mask_ + (mask_ - self.mask_) * self.out_old
         
         # compute the loss function
-        total_loss = self.lossfunc(output_ * mask_, image_)
+        total_loss = self.loss_fn(out_ * mask_, image_)
         total_loss.backward()
         
         # save loss and metrics, and print log
         l = total_loss.item()
-        s = u.snr(output=output_ * (1 - self.mask_) + self.img_ * self.mask_, target=self.img_).item()
-        p = u.pcorr(output=output_ * (1 - self.mask_), target=self.img_ * (1 - self.mask_)).item()
+        s = u.snr(output=out_ * (1 - self.mask_) + self.img_ * self.mask_, target=self.img_).item()
+        p = u.pcorr(output=out_ * (1 - self.mask_), target=self.img_ * (1 - self.mask_)).item()
         self.history.append((l, s, p))
+        self.history.lr.append(self.optimizer.param_groups[0]['lr'])
+        print(colored(self.history.log_message(self.iiter), 'yellow'), '\r', end='')
         
-        msg = "Iter %s, Loss = %.2e, SNR = %+.2f dB, PCORR = %+.2f %%" \
-              % (str(self.iiter + 1).zfill(self.zfill), l, s, p * 100)
-        
-        print(colored(msg, 'yellow'), '\r', end='')
-        
-        # The early stop, save if the Loss is decreasing (above a threshold)
-        if self.loss_min > self.history.loss[-1]:
-            self.loss_min = self.history.loss[-1]
-            if len(output_.shape) <= 4:
-                self.out = u.torch_to_np(output_).transpose(1, 2, 0)
-            else:
-                self.out = u.torch_to_np(output_).squeeze()
-        
-        # saving the intermediate output. if don't want to save anything, set save_every larger than epoches
-        if self.iiter in list(range(0, 200, int(self.args.save_every))) and self.iiter != 0:
-            if len(output_.shape) <= 4:
-                out_img = u.torch_to_np(output_).transpose(1, 2, 0)
-            else:
-                out_img = u.torch_to_np(output_).squeeze()
-            np.save(os.path.join(self.outpath, self.image_name + '_' + str(self.iiter) + '.npy'),
+        # save the output if the loss is decreasing
+        if self.iiter == 0:
+            self.loss_min = l
+            self.out_best = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
+        elif l <= self.loss_min:
+            self.loss_min = l
+            self.out_best = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
+        else:
+            pass
+            
+        # saving intermediate outputs
+        if self.iiter in self.iter_to_be_saved and self.iiter != 0:
+            out_img = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
+            np.save(os.path.join(self.outpath, self.image_name.split('.')[0] + '_output%s.npy' % str(self.iiter).zfill(self.zfill)),
                     out_img)
         
         self.iiter += 1
@@ -251,13 +251,22 @@ class Training:
         Train the network. For each iteration, call the optimization loop function.
         """
         print(colored('starting optimization with ADAM...', 'cyan'))
-        optimizer = torch.optim.Adam(self.parameters, lr=self.args.lr)
+        self.optimizer = torch.optim.Adam(self.parameters, lr=self.args.lr)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min',
+                                                               factor=self.args.lr_factor,
+                                                               threshold=self.args.lr_thresh,
+                                                               patience=self.args.lr_patience)
+        
         start = time()
         for j in range(self.args.epochs):
-            optimizer.zero_grad()
-            self.optimization_loop()
-            optimizer.step()
-        
+            self.optimizer.zero_grad()
+            loss = self.optimization_loop()
+            self.optimizer.step()
+            if self.args.reduce_lr:
+                scheduler.step(loss)
+            if self.stopper.step(loss):  # stopper is computed on loss, as we don't have any validation metrics
+                break
+
         self.elapsed = time() - start
         print(colored(u.sec2time(self.elapsed), 'yellow'))
     
@@ -273,7 +282,7 @@ class Training:
             # 'args'   : self.args,
             'mask'   : self.mask,
             'image'  : self.img,
-            'output' : self.out,
+            'output' : self.out_best,
             'noise'  : self.input_list,
         })
         
@@ -285,13 +294,13 @@ class Training:
     def clean(self):
         """
         Clean the trainer for a new patch.
+        Don't touch the model, as it depends on transfer learning options.
         """
         self.iiter = 0
-        self.saving_interval = 0
         print(colored('Finished patch %s' % self.image_name, 'yellow'))
         torch.cuda.empty_cache()
-        self.loss_min = self.args.loss_max
-        self.history = u.History()
+        self.loss_min = None
+        self.history = u.History(self.args.epochs)
 
 
 def main() -> None:
@@ -326,7 +335,7 @@ def main() -> None:
         
         if np.isclose(std, 0., atol=1e-12):  # all the data are corrupted
             print(colored('skipping...', 'cyan'))
-            T.out = T.img * T.mask
+            T.out_best = T.img * T.mask
             T.elapsed = 0.
         else:
             # TODO add the transfer learning option
