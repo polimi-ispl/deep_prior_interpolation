@@ -1,4 +1,6 @@
 import numpy as np
+from scipy import signal as s
+from scipy.ndimage import convolve1d
 
 
 def normalize(image, time_step, velo):
@@ -28,8 +30,17 @@ def bool2bin(in_content: np.ndarray, logic: bool = True):
     return temp
 
 
+def filter_noise_traces(in_content: np.ndarray, filt: np.ndarray) -> np.ndarray:
+    assert filt.ndim == 1, "filter has to be a 1D array"
+
+    filtered = convolve1d(in_content, filt, axis=2)
+    
+    return filtered
+    
+    
 __all__ = [
     "normalize",
     "denormalize",
     "bool2bin",
+    "filter_noise_traces",
 ]

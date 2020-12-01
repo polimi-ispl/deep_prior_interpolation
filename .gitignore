@@ -3,6 +3,7 @@ __pycache__/
 results/
 datasets/marmousi3d
 datasets/netherlandsF3
+datasets/gom
 .idea/
 *.pdf
 *.sh

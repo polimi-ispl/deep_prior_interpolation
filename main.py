@@ -17,7 +17,7 @@ u.set_seed()
 
 class Training:
     def __init__(self, args, outpath, dtype=torch.cuda.FloatTensor):
-    
+        
         self.args = args
         self.dtype = dtype
         self.outpath = outpath
@@ -28,7 +28,7 @@ class Training:
         self.elapsed = None
         self.iiter = 0
         self.iter_to_be_saved = list(range(0, self.args.epochs, int(self.args.save_every))) \
-                                if self.args.save_every is not None else [0]
+            if self.args.save_every is not None else [0]
         self.loss_min = None
         self.outchannel = args.imgchannel
         self.history = u.History(self.args.epochs)
@@ -58,9 +58,6 @@ class Training:
         self.parameters = None
         self.num_params = None
         self.optimizer = None
-        # stop after no improvements greater than 1% of the previous loss
-        self.stopper = u.EarlyStopping(patience=self.args.earlystop_patience,
-                                       min_delta=1, percentage=True)
     
     def build_input(self):
         # build a noise tensor
@@ -69,13 +66,14 @@ class Training:
                                   noise_type=self.args.noise_dist).type(self.dtype)
         self.input_ *= self.args.noise_std
         
-        if self.args.filter_noise_with_data:
-            dim = list(np.arange(len(data_shape)+2))
-            dim = dim[:2] + dim[3:]
-            traces_ = torch.mean(self.img_*self.mask_, dim=dim)
-            traces_fft = torch.fft.fft(traces_)
         if self.args.filter_noise_with_wavelet:
-                wav_fft = np.load(self.args.imgdir())
+            self.input_ = u.np_to_torch(
+                u.filter_noise_traces(
+                    self.input_.detach().clone().cpu().numpy(),
+                    np.load(os.path.join(self.args.imgdir, 'wavelet.npy'))
+                )
+            ).type(self.dtype)
+            
         if self.args.data_forgetting_factor != 0:
             # build decimated data tensor
             data_ = self.img_ * self.mask_
@@ -184,7 +182,7 @@ class Training:
         self.mask_ = u.np_to_torch(np.transpose(self.mask, re_sha)[np.newaxis]).type(self.dtype)
         
         self.mask_update_fn = u.MaskUpdate(self.mask_, self.args.mask_th, self.args.mask_step)
-
+        
         # compute std on coarse data for skipping all-zeros patches
         input_std = torch.std(self.img_ * self.mask_).item()
         return input_std
@@ -228,18 +226,19 @@ class Training:
         
         # save the output if the loss is decreasing
         if self.iiter == 0:
-            self.loss_min = l
+            self.loss_min = self.history.loss[-1]
             self.out_best = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
-        elif l <= self.loss_min:
-            self.loss_min = l
+        elif self.history.loss[-1] <= self.loss_min:
+            self.loss_min = self.history.loss[-1]
             self.out_best = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
         else:
             pass
-            
+        
         # saving intermediate outputs
         if self.iiter in self.iter_to_be_saved and self.iiter != 0:
             out_img = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
-            np.save(os.path.join(self.outpath, self.image_name.split('.')[0] + '_output%s.npy' % str(self.iiter).zfill(self.zfill)),
+            np.save(os.path.join(self.outpath,
+                                 self.image_name.split('.')[0] + '_output%s.npy' % str(self.iiter).zfill(self.zfill)),
                     out_img)
         
         self.iiter += 1
@@ -256,7 +255,10 @@ class Training:
                                                                factor=self.args.lr_factor,
                                                                threshold=self.args.lr_thresh,
                                                                patience=self.args.lr_patience)
-        
+        # stop after no improvements greater than a certain percentage of the previous loss
+        stopper = u.EarlyStopping(patience=self.args.earlystop_patience,
+                                  min_delta=self.args.earlystop_min_delta,
+                                  percentage=True)
         start = time()
         for j in range(self.args.epochs):
             self.optimizer.zero_grad()
@@ -264,9 +266,9 @@ class Training:
             self.optimizer.step()
             if self.args.reduce_lr:
                 scheduler.step(loss)
-            if self.stopper.step(loss):  # stopper is computed on loss, as we don't have any validation metrics
+            if stopper.step(loss):  # stopper is computed on loss, as we don't have any validation metrics
                 break
-
+        
         self.elapsed = time() - start
         print(colored(u.sec2time(self.elapsed), 'yellow'))
     
@@ -315,10 +317,7 @@ def main() -> None:
     u.write_args(os.path.join(outpath, 'args.txt'), args)
     
     # get a list of patches organized as dictionaries with image, mask and name fields
-    if args.use_pe:
-        patches = extract_patches(args)
-    else:
-        patches = get_patch(args)
+    patches = extract_patches(args)
     
     print(colored('Processing %d patches' % len(patches), 'yellow'))
     
@@ -328,10 +327,10 @@ def main() -> None:
     # interpolation
     for i, patch in enumerate(patches):
         
-        print(colored('\nThe image shape is %s' % str(patch['image'].shape), 'cyan'))
+        print(colored('\nThe data shape is %s' % str(patch['image'].shape), 'cyan'))
         
         std = T.load_data(patch)
-        print(colored('the std of input image is %.2e, ' % std, 'cyan'), end="")
+        print(colored('the std of coarse data is %.2e, ' % std, 'cyan'), end="")
         
         if np.isclose(std, 0., atol=1e-12):  # all the data are corrupted
             print(colored('skipping...', 'cyan'))

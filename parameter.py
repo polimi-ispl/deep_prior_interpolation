@@ -22,8 +22,6 @@ def parse_arguments() -> Namespace:
                         help='The percent of addictive random deleting samples')
     parser.add_argument('--padwidth', type=int, required=False, default=0,
                         help='The padding width to the process data using edge mode')
-    parser.add_argument('--use_pe', action='store_true', default=False,
-                        help='Use PatchExtractor instead of hand-written Fantong function')
     parser.add_argument('--patch_shape', nargs='+', type=int, required=False,
                         help="Patch shape to be processed (it can handle 2D, 2.5D, 3D)")
     parser.add_argument('--patch_stride', nargs='+', type=int, required=False,
@@ -69,9 +67,6 @@ def parse_arguments() -> Namespace:
                         help='Standard deviation of the noise for the input tensor')
     parser.add_argument('--data_forgetting_factor', type=int, default=0, required=False,
                         help='Duration of additional decimated data to the input noise tensor')
-    
-    parser.add_argument('--filter_noise_with_data', action='store_true', default=False,
-                        help='Filter input noise tensor with the decimated data spectrum')
     parser.add_argument('--filter_noise_with_wavelet', action='store_true', default=False,
                         help='Filter input noise tensor with the wavelet bandwidth')
     # training
@@ -85,7 +80,7 @@ def parse_arguments() -> Namespace:
                         help='LR reduction for Plateau scheduler.')
     parser.add_argument('--lr_thresh', type=float, default=1e-4, required=False,
                         help='LR threshold for Plateau scheduler.')
-    parser.add_argument('--lr_patience', type=int, default=10, required=False,
+    parser.add_argument('--lr_patience', type=int, default=100, required=False,
                         help='LR patience for Plateau scheduler.')
     parser.add_argument('--save_every', type=int, required=False,
                         help='Number of epochs every which to save the results')
@@ -99,6 +94,8 @@ def parse_arguments() -> Namespace:
                         help='Use ReduceLROnPlateau scheduler')
     parser.add_argument('--earlystop_patience', type=int, required=False,
                         help="Early stopping patience")
+    parser.add_argument('--earlystop_min_delta', type=float, required=False, default=1.,
+                        help="Early stopping min percentage delta")
     
     args = parser.parse_args()
     if args.upsample == "linear":

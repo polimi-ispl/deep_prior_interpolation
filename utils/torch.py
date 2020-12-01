@@ -83,18 +83,8 @@ def build_noise_tensor(input_depth, spatial_size, method='noise', noise_type='u'
         assert False
     
     net_input = get_noise(shape, noise_type) * var
-
-    return net_input
-
-
-def filter_tensor(in_content: torch.Tensor, filter: torch.Tensor, nfft: int = None) -> torch.Tensor:
-    if nfft is None:
-        nfft = nextpow2(max(in_content.shape[2], filter.shape[0]))
     
-    in_content_F = torch.fft.fft(in_content, n=nfft, dim=2, norm='ortho')
-    filter_F = torch.fft.fft(filter, n=nfft, dim=0, norm='ortho')
-    filtered = in_content_F * filter_F.repeat((in_content_F.shape[0], filter_F.shape[0]) + in_content_F.shape[2:])
-    return filtered
+    return net_input
 
 
 def np_to_torch(in_content: np.ndarray) -> torch.Tensor:
@@ -150,7 +140,7 @@ def set_gpu(id=-1):
         print(colored('GPU not selected', 'yellow'))
     else:
         # -1 for automatic choice
-        device = id if id is not -1 else getFirstAvailable(order='memory')[0]
+        device = id if id != -1 else getFirstAvailable(order='memory')[0]
         try:
             name = getGPUs()[device].name
         except IndexError:
@@ -245,51 +235,65 @@ class MaskUpdate:
 
 
 class EarlyStopping(object):
-    def __init__(self, mode='min', min_delta=0, patience=10, percentage=False):
-        self.mode = mode
+    """Stop the optimization when the metrics don't improve.
+    Use the `step` method for raising a True to stop.
+    
+    Arguments:
+        patience: number of iterations to wait if the stopping condition is met
+        max: maximize the metrics instead of minimize
+        min_delta: minimum difference between the best and the actual metrics values to trigger the stopping condition
+        percentage: min_delta is provided as a percentage of the best metrics value
+    """
+    
+    def __init__(self, patience: int = 10, max: bool = False, min_delta: float = 0, percentage: bool = False):
+        self.mode = 'max' if max else 'min'
         self.min_delta = min_delta
         self.patience = patience
+        self.percentage = percentage
         self.best = None
         self.num_bad_epochs = 0
         self.is_better = None
-        self._init_is_better(mode, min_delta, percentage)
-
+        self._init_is_better()
+        self.msg = "\nEarly stopping called, terminating..."
+        
         if patience == 0:
             self.is_better = lambda a, b: True
             self.step = lambda a: False
-
+    
     def step(self, metrics) -> bool:
         if self.best is None:
             self.best = metrics
             return False
-
+        
         if torch.isnan(metrics):
+            print("Metrics is NaN, terminating...")
             return True
-
+        
         if self.is_better(metrics, self.best):
             self.num_bad_epochs = 0
             self.best = metrics
         else:
             self.num_bad_epochs += 1
-
+        
         if self.num_bad_epochs >= self.patience:
+            print(self.msg)
             return True
-
+        
         return False
-
-    def _init_is_better(self, mode, min_delta, percentage):
-        if mode not in {'min', 'max'}:
-            raise ValueError('mode ' + mode + ' is unknown!')
-        if not percentage:
-            if mode == 'min':
-                self.is_better = lambda a, best: a < best - min_delta
-            if mode == 'max':
-                self.is_better = lambda a, best: a > best + min_delta
+    
+    def _init_is_better(self):
+        if self.mode not in {'min', 'max'}:
+            raise ValueError('mode ' + self.mode + ' is unknown!')
+        if not self.percentage:
+            if self.mode == 'min':
+                self.is_better = lambda a, best: a < best - self.min_delta
+            if self.mode == 'max':
+                self.is_better = lambda a, best: a > best + self.min_delta
         else:
-            if mode == 'min':
-                self.is_better = lambda a, best: a < best - (best * min_delta / 100)
-            if mode == 'max':
-                self.is_better = lambda a, best: a > best + (best * min_delta / 100)
+            if self.mode == 'min':
+                self.is_better = lambda a, best: a < best - (best * self.min_delta / 100)
+            if self.mode == 'max':
+                self.is_better = lambda a, best: a > best + (best * self.min_delta / 100)
 
 
 __all__ = [
