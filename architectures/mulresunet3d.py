@@ -1,68 +1,6 @@
 import torch
 from torch import nn
-import numpy as np
-from .base import act, Symmetry
-
-class Concat3D(nn.Module):
-    def __init__(self, dim, *args):
-        super(Concat3D, self).__init__()
-        self.dim = dim
-        
-        for idx, module in enumerate(args):
-            self.add_module(str(idx), module)
-    
-    def forward(self, input):
-        inputs = []
-        for module in self._modules.values():
-            inputs.append(module(input))
-        
-        inputs_shapes2 = [x.shape[2] for x in inputs]
-        inputs_shapes3 = [x.shape[3] for x in inputs]
-        inputs_shapes4 = [x.shape[4] for x in inputs]
-        
-        if np.all(np.array(inputs_shapes2) == min(inputs_shapes2)) and np.all(
-                np.array(inputs_shapes3) == min(inputs_shapes3)) and np.all(
-            np.array(inputs_shapes4) == min(inputs_shapes4)):
-            inputs_ = inputs
-        else:
-            target_shape2 = min(inputs_shapes2)
-            target_shape3 = min(inputs_shapes3)
-            target_shape4 = min(inputs_shapes4)
-            
-            inputs_ = []
-            for inp in inputs:
-                diff2 = (inp.size(2) - target_shape2) // 2
-                diff3 = (inp.size(3) - target_shape3) // 2
-                diff4 = (inp.size(4) - target_shape4) // 2
-                inputs_.append(
-                    inp[:, :, diff2: diff2 + target_shape2, diff3:diff3 + target_shape3, diff4:diff4 + target_shape4])
-        
-        return torch.cat(inputs_, dim=self.dim)
-    
-    def __len__(self):
-        return len(self._modules)
-
-
-def conv3d(in_f, out_f, kernel_size, stride=1, bias=True):
-    """
-        The 3D convolutional filters with kind of stride, avg pooling, max pooling.
-        Note that the padding is zero padding.
-    """
-    to_pad = int((kernel_size - 1) / 2)
-    
-    convolver = nn.Conv3d(in_f, out_f, kernel_size,
-                          stride, padding=to_pad, bias=bias)
-    
-    layers = filter(lambda x: x is not None, [convolver])
-    return nn.Sequential(*layers)
-
-
-def conv3dbn(in_f, out_f, kernel_size=3, stride=1, bias=True, act_fun='LeakyReLU'):
-    block = []
-    block.append(conv3d(in_f, out_f, kernel_size, stride=stride, bias=bias))
-    block.append(nn.BatchNorm3d(out_f))
-    block.append(act(act_fun))
-    return nn.Sequential(*block)
+from .base import act, Symmetry, Concat3D, conv3dbn, conv3d
 
 
 class MultiRes3dBlock(nn.Module):
