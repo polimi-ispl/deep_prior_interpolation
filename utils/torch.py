@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-from torch.nn import init
 import torch.nn.functional as F
 from GPUtil import getFirstAvailable, getGPUs
 from termcolor import colored
@@ -25,22 +24,22 @@ def init_weights(net, init_type='normal', init_gain=0.02):
         classname = m.__class__.__name__
         if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
             if init_type == 'normal':
-                init.normal_(m.weight.data, 0.0, init_gain)
+                torch.nn.init.normal_(m.weight.data, 0.0, init_gain)
             elif init_type == 'xavier':
-                init.xavier_normal_(m.weight.data, gain=init_gain)
+                torch.nn.init.xavier_normal_(m.weight.data, gain=init_gain)
             elif init_type == 'kaiming':
-                init.kaiming_normal_(m.weight.data, a=0.2, mode='fan_in')
+                torch.nn.init.kaiming_normal_(m.weight.data, a=0.2, mode='fan_in')
             elif init_type == 'orthogonal':
-                init.orthogonal_(m.weight.data, gain=init_gain)
+                torch.nn.init.orthogonal_(m.weight.data, gain=init_gain)
             else:
                 raise NotImplementedError(
                     'initialization method [%s] is not implemented' % init_type)
             if hasattr(m, 'bias') and m.bias is not None:
-                init.constant_(m.bias.data, 0.0)
+                torch.nn.init.constant_(m.bias.data, 0.0)
         # BatchNorm Layer's weight is not a matrix; only normal distribution applies.
         elif classname.find('BatchNorm') != -1:
-            init.normal_(m.weight.data, 10.0, init_gain * 10)
-            init.constant_(m.bias.data, 0.0)
+            torch.nn.init.normal_(m.weight.data, 10.0, init_gain * 10)
+            torch.nn.init.constant_(m.bias.data, 0.0)
     
     if init_type != 'default':
         net.apply(init_func)
@@ -207,6 +206,14 @@ def dilate_mask(mask, iterations=1):
     
     mask_res = torch.from_numpy(mask_res.reshape(shape)).type(ddtype).to(device)
     return mask_res
+
+
+def data_parallel(module, input, device_ids, output_device):
+    replicas = torch.nn.parallel.replicate(module, device_ids)
+    inputs = torch.nn.parallel.scatter(input, device_ids)
+    replicas = replicas[:len(inputs)]
+    outputs = torch.nn.parallel.parallel_apply(replicas, inputs)
+    return torch.nn.parallel.gather(outputs, output_device)
 
 
 class MaskUpdate:

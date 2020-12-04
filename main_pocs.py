@@ -25,22 +25,24 @@ class Training:
             self.loss_fn = torch.nn.MSELoss().type(self.dtype)
         else:
             self.loss_fn = torch.nn.L1Loss().type(self.dtype)
+        self.loss_reg_fn = torch.nn.MSELoss().type(self.dtype)
         self.elapsed = None
         self.iiter = 0
         self.iter_to_be_saved = list(range(0, self.args.epochs, int(self.args.save_every))) \
             if self.args.save_every is not None else [0]
         self.loss_min = None
         self.outchannel = args.imgchannel
-        self.history = u.History(self.args.epochs)
+        self.history = u.HistoryReg(self.args.epochs)
         
         self.imgpath = None
         self.image_name = None
         self.img = None
         self.img_ = None
+        self.coarse_img_ = None
         self.mask = None
         self.mask_ = None
         self.out_best = None
-        self.out_old = None
+        self.reg = None
         
         self.zfill = u.ten_digit(self.args.epochs)
         
@@ -52,6 +54,8 @@ class Training:
         self.add_data_ = None
         self.add_data_weight = None
         self.input_list = []
+        self.reg_weight = np.linspace(0.01, 2, self.args.epochs)
+        self.reg_th = 40 - np.arange(self.args.epochs) * 0.01333
         
         # build network
         self.net = None
@@ -180,47 +184,57 @@ class Training:
         
         self.img_ = u.np_to_torch(np.transpose(self.img, re_sha)[np.newaxis]).type(self.dtype)
         self.mask_ = u.np_to_torch(np.transpose(self.mask, re_sha)[np.newaxis]).type(self.dtype)
+        self.coarse_img_ = self.img_ * self.mask_
         
         self.mask_update_fn = u.MaskUpdate(self.mask_, self.args.mask_th, self.args.mask_step)
         
         # compute std on coarse data for skipping all-zeros patches
-        input_std = torch.std(self.img_ * self.mask_).item()
+        input_std = torch.std(self.coarse_img_).item()
         return input_std
     
+    def build_regularizer(self):
+        self.reg = u.POCS(data=self.coarse_img_, mask=self.mask_, weight=1.,
+                          forward_fn=lambda x: torch.rfft(x, signal_ndim=x.ndim - 2, onesided=False),
+                          adjoint_fn=lambda x: torch.irfft(x, signal_ndim=x.ndim - 2, onesided=False)
+                          )
+    
     def optimization_loop(self):
-        # adding normal noise to the learned parameters
+        # add normal noise to the network parameters
         if self.args.param_noise:
             for n in [x for x in self.net.parameters() if len(x.size()) in [4, 5]]:
                 n = n + n.detach().clone().normal_() * n.std() * 0.02
         
-        # adding normal noise to the input tensor
+        # add normal noise to input noise tensor
         input_ = self.input_old
         if self.args.reg_noise_std > 0:
             input_ = self.input_old + (self.add_noise_.normal_() * self.args.reg_noise_std)
         
-        # adding data to the input noise
+        # add data to input noise tensor
         if self.iiter < self.args.data_forgetting_factor:
             input_ += self.add_data_weight[self.iiter] * self.add_data_
             self.input_list.append(u.torch_to_np(input_[0, 0]))
         
         # compute output
         out_ = self.net(input_)
-        if self.iiter % self.args.mask_step == 0:
-            self.out_old = out_.clone().detach()
         
-        # compute the new mask and new related input
-        mask_ = self.mask_update_fn.update(self.iiter)
-        image_ = self.img_ * self.mask_ + (mask_ - self.mask_) * self.out_old
+        # compute the main loss function
+        main_loss = self.loss_fn(out_ * self.mask_, self.coarse_img_)
         
-        # compute the loss function
-        total_loss = self.loss_fn(out_ * mask_, image_)
+        # compute regularization loss
+        reg_loss = self.loss_reg_fn(out_, self.reg(out_, thresh=self.reg_th))
+        
+        # compute total loss
+        reg_w = self.reg_weight[self.iiter-2000] if self.iiter > 2000 else 0.01
+        total_loss = main_loss + reg_w * reg_loss
+        
         total_loss.backward()
         
         # save loss and metrics, and print log
         l = total_loss.item()
-        s = u.snr(output=out_ * (1 - self.mask_) + self.img_ * self.mask_, target=self.img_).item()
-        p = u.pcorr(output=out_ * (1 - self.mask_), target=self.img_ * (1 - self.mask_)).item()
-        self.history.append((l, s, p))
+        r = reg_loss.item()
+        s = u.snr(output=out_, target=self.img_).item()
+        p = u.pcorr(output=out_, target=self.img_).item()
+        self.history.append((l, r, s, p))
         self.history.lr.append(self.optimizer.param_groups[0]['lr'])
         print(colored(self.history.log_message(self.iiter), 'yellow'), '\r', end='')
         
@@ -234,7 +248,7 @@ class Training:
         else:
             pass
         
-        # saving intermediate outputs
+        # save intermediate outputs
         if self.iiter in self.iter_to_be_saved and self.iiter != 0:
             out_img = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
             np.save(os.path.join(self.outpath,
@@ -281,7 +295,6 @@ class Training:
             'elapsed': u.sec2time(self.elapsed),
             'outpath': self.outpath,
             'history': self.history,
-            # 'args'   : self.args,
             'mask'   : self.mask,
             'image'  : self.img,
             'output' : self.out_best,
@@ -302,7 +315,7 @@ class Training:
         print(colored('Finished patch %s' % self.image_name, 'yellow'))
         torch.cuda.empty_cache()
         self.loss_min = None
-        self.history = u.History(self.args.epochs)
+        self.history = u.HistoryReg(self.args.epochs)
 
 
 def main() -> None:
@@ -319,7 +332,7 @@ def main() -> None:
     # get a list of patches organized as dictionaries with image, mask and name fields
     patches = extract_patches(args)
     
-    print(colored('Processing %d patches' % len(patches), 'yellow'))
+    print(colored('Processing %d patch(es)' % len(patches), 'yellow'))
     
     # instantiate a trainer
     T = Training(args, outpath)
@@ -341,6 +354,7 @@ def main() -> None:
             if i == 0 or not args.start_from_prev:
                 T.build_model()
             T.build_input()
+            T.build_regularizer()
             T.optimize()
         
         T.save_result()

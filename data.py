@@ -206,7 +206,8 @@ def extract_patches(args) -> List[dict]:
     assert original.shape == corrupted.shape, "Original and Corrupted data must have the same dimension"
     assert original.ndim in [2, 3], "Data volumes have to be 2D or 3D"
     
-    corrupted = u.bool2bin(corrupted)
+    if "lines" not in args.imgdir.lower():
+        corrupted = u.bool2bin(corrupted)
     
     if args.datadim == "2.5d":
         if args.slice == 'XY':  # we start from (t, x, y) and we want (x, y, t) for t becomes c

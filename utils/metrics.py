@@ -83,10 +83,60 @@ class History:
         
     def __repr__(self):
         return self.__str__()
-        
-        
+
+
+class HistoryReg:
+    def __init__(self, epochs):
+        self.loss = []
+        self.snr = []
+        self.pcorr = []
+        self.lr = []
+        self.reg = []
+        self.msg = "Iter %s, Loss = %.2e, DF = %.2e, REG = %.2e, SNR = %+.2f dB, PCORR = %+.2f %%"
+        self.zfill = ten_digit(epochs)
+    
+    def __getitem__(self, item):
+        return self.loss[item], self.reg[item], self.snr[item], self.pcorr[item]
+    
+    def __setitem__(self, idx, values):
+        l, r, s, p = values
+        self.loss[idx] = l
+        self.reg[idx] = r
+        self.snr[idx] = s
+        self.pcorr[idx] = p
+    
+    def append(self, values):
+        l, r, s, p = values
+        self.loss.append(l)
+        self.reg.append(r)
+        self.snr.append(s)
+        self.pcorr.append(p)
+    
+    def __len__(self):
+        assert len(self.loss) == len(self.snr) == len(self.pcorr) == len(self.lr) == len(self.reg)
+        return len(self.loss)
+    
+    def log_message(self, idx):
+        return self.msg % (str(idx + 1).zfill(self.zfill),
+                           self.loss[idx],
+                           self.loss[idx]-self.reg[idx],
+                           self.reg[idx],
+                           self.snr[idx],
+                           self.pcorr[idx] * 100)
+    
+    def __str__(self):
+        return   "Loss : " + str(self.loss) + \
+               "\nReg  : " + str(self.reg) + \
+               "\nSNR  : " + str(self.snr) + \
+               "\nPCORR: " + str(self.pcorr)
+    
+    def __repr__(self):
+        return self.__str__()
+
+
 __all__ = [
     'snr',
     'pcorr',
     'History',
+    'HistoryReg',
 ]

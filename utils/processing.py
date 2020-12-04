@@ -1,5 +1,4 @@
 import numpy as np
-from scipy import signal as s
 from scipy.ndimage import convolve1d
 
 
@@ -36,8 +35,8 @@ def filter_noise_traces(in_content: np.ndarray, filt: np.ndarray) -> np.ndarray:
     filtered = convolve1d(in_content, filt, axis=2)
     
     return filtered
-    
-    
+
+
 __all__ = [
     "normalize",
     "denormalize",
