@@ -2,7 +2,10 @@ import torch
 import numpy as np
 
 
-def threshold(in_content: torch.Tensor or np.ndarray, thresh: float = 0.) -> torch.Tensor or np.ndarray:
+def threshold(in_content: torch.Tensor or np.ndarray, thresh: float = None) -> torch.Tensor or np.ndarray:
+    if thresh is None:
+        thresh = compute_threshold(in_content)
+
     if isinstance(in_content, torch.Tensor):
         p = (in_content > thresh).float()
         m = (in_content < -thresh).float()
@@ -10,6 +13,10 @@ def threshold(in_content: torch.Tensor or np.ndarray, thresh: float = 0.) -> tor
         p = (in_content > thresh).astype(np.float)
         m = (in_content < -thresh).astype(np.float)
     return in_content * (p + m)
+
+
+def compute_threshold(in_content: torch.Tensor or np.ndarray, perc: float = 10):
+    return float(in_content.max() * perc/100)
 
 
 def pocs_fk_fn(out: torch.Tensor or np.ndarray,
@@ -43,41 +50,35 @@ class POCS(torch.nn.Module):
         weight: weighting factor between the true data and the POCS one
         forward_fn: transform forward function (from tensor to tensor)
         adjoint_fn: transform adjoint (or inverse) function (from tensor to tensor)
+        thresh_perc: percentile for computing the threshold
     """
     
     def __init__(self, data: torch.Tensor, mask: torch.Tensor, weight: float,
-                 forward_fn: callable, adjoint_fn: callable):
+                 forward_fn: callable, adjoint_fn: callable, thresh_perc: float = None):
         super(POCS, self).__init__()
         self.weighted_data = weight * data
-        self.weighted_mask = 1 - weight * mask
+        self.weighted_mask = torch.ones_like(mask) - weight * mask
         self.weight = weight
         self.forward_fn = forward_fn
         self.adjoint_fn = adjoint_fn
+        self.thresh_perc = thresh_perc
+    
+    def __repr__(self):
+        return self.__str__()
     
     def __str__(self):
-        return "POCS"
+        fn = str(self.forward_fn).replace('<function ', '')
+        fn = fn.split('_')[0]
+        return "POCS(weight=%f, fn=%s)" % (self.weight, fn)
     
     def forward(self, x, thresh: float = None):
         _ = self.forward_fn(x)
-        _ = threshold(_, thresh)
+        th = compute_threshold(_, self.thresh_perc) if self.thresh_perc is not None else thresh
+        _ = threshold(_, th)
         _ = self.adjoint_fn(_)
         return self.weighted_data + self.weighted_mask * _
 
 
-class POCS_FFT(POCS):
-    def __init__(self, data: torch.Tensor, mask: torch.Tensor,
-                 weight: float = 1., fft_range: tuple = None, dim: tuple = None):
-        
-        if torch.__version__ == '1.7.0':
-            forward_fn = lambda x: torch.rfft(x, signal_ndim=data.ndim - 2, onesided=False)
-            adjoint_fn = lambda x: torch.irfft(x, signal_ndim=data.ndim - 2, onesided=False)
-        else:
-            forward_fn = lambda x: torch.fft.fftn(x, dim=dim, s=fft_range)
-            adjoint_fn = lambda x: torch.fft.ifftn(x, dim=dim, s=data.shape)
-        super(POCS_FFT, self).__init__(data, mask, weight, forward_fn, adjoint_fn)
-
-
 __all__ = [
     "POCS",
-    "pocs_fk_fn",
 ]

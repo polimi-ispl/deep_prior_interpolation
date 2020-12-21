@@ -12,11 +12,12 @@ def clim(in_content, ratio=95):
 
 
 def explode_volume(volume: np.ndarray, t: int = None, x: int = None, y: int = None,
-                   figsize: tuple = (8, 8), cmap: str = 'seismic', clipval: tuple = None, p: int = 98,
+                   figsize: tuple = (8, 8), cmap: str = 'bone', clipval: tuple = None, p: int = 98,
                    tlim: tuple = None, xlim: tuple = None, ylim: tuple = None, labels : list = ('[s]', '[km]', '[km]'),
-                   linespec: dict = None, filename: str or Path = None) -> plt.figure:
+                   ratio: tuple = None, linespec: dict = None,
+                   filename: str or Path = None, save_opts: dict = None) -> plt.figure:
     if linespec is None:
-        linespec = dict(ls='-', lw=1, color='gold')
+        linespec = dict(ls='-', lw=1, color='orange')
     nt, nx, ny = volume.shape
     t_label, x_label, y_label = labels
     
@@ -41,8 +42,14 @@ def explode_volume(volume: np.ndarray, t: int = None, x: int = None, y: int = No
     
     # instantiate plots
     fig = plt.figure(figsize=figsize)
+    if ratio is None:
+        wr = (nx, ny)
+        hr = (ny, nx)
+    else:
+        wr = ratio[0]
+        hr = ratio[1]
     opts = dict(cmap=cmap, clim=clipval if clipval is not None else clim(volume, p), aspect='auto')
-    gs = fig.add_gridspec(2, 2, width_ratios=(nx, ny), height_ratios=(ny, nx),
+    gs = fig.add_gridspec(2, 2, width_ratios=wr, height_ratios=hr,
                           left=0.1, right=0.9, bottom=0.1, top=0.9,
                           wspace=0.0, hspace=0.0)
     ax = fig.add_subplot(gs[1, 0])
@@ -74,7 +81,9 @@ def explode_volume(volume: np.ndarray, t: int = None, x: int = None, y: int = No
     ax_top.set_ylabel("y " + y_label)
     
     if filename is not None:
-        plt.savefig(filename, bbox_inches='tight', dpi=150)
+        if save_opts is None:
+            save_opts = {'format': 'png', 'dpi': 150, 'bbox_inches': 'tight'}
+        plt.savefig(f"{filename}.{save_opts['format']}", **save_opts)
     plt.show()
 
 

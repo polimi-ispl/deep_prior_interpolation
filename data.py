@@ -1,7 +1,7 @@
 from typing import List
 import os
 import numpy as np
-import utils as u
+from utils import ten_digit, bool2bin, add_rand_mask, PatchExtractor
 
 
 def _get_patch_2d(args) -> List[dict]:
@@ -31,7 +31,7 @@ def _get_patch_2d(args) -> List[dict]:
         mask[np.isnan(mask) == True] = 0
         
         if args.adirandel > 0:
-            mask = u.add_rand_mask(mask, args.adirandel)
+            mask = add_rand_mask(mask, args.adirandel)
         
         out['image'] = img * args.gain[i]
         out['name'] = maskname
@@ -54,10 +54,10 @@ def _get_patch_2_5d(args) -> List[dict]:
     if args.slice == 'XY':
         img_np = img.transpose(1, 2, 0)
         mask_np = mask.transpose(1, 2, 0)
-    elif args.slice == 'YT':
+    elif args.slice == 'TY':
         img_np = np.swapaxes(img, 2, 1)
         mask_np = np.swapaxes(mask, 2, 1)
-    elif args.slice == 'XT':
+    elif args.slice == 'TX':
         img_np = img
         mask_np = mask
     
@@ -65,7 +65,7 @@ def _get_patch_2_5d(args) -> List[dict]:
     mask_np[np.isnan(mask_np) == True] = 0
     
     if args.adirandel > 0:
-        mask_np = u.add_rand_mask(mask_np, args.adirandel)
+        mask_np = add_rand_mask(mask_np, args.adirandel)
     
     outputs = [{'image' : img_np[..., i: i + perc],
                 'mask': mask_np[..., i: i + perc],
@@ -88,7 +88,7 @@ def _get_patch_3d(args) -> List[dict]:
     mask[np.isnan(mask) == True] = 0
     
     if args.adirandel > 0:
-        mask = u.add_rand_mask(mask, args.adirandel)
+        mask = add_rand_mask(mask, args.adirandel)
     pad_w = args.padwidth
     
     if pad_w > 0:
@@ -188,15 +188,40 @@ def get_patch(args) -> List[dict] or dict:
     return outputs
 
 
-def _get_patch_extractor(in_shape, patch_shape, patch_stride, datadim, imgchannel=1) -> u.PatchExtractor:
+def _get_patch_extractor(in_shape: tuple, patch_shape: tuple, patch_stride: tuple,
+                         datadim: str, imgchannel: int = None) -> PatchExtractor:
     ndim = len(in_shape)
     patch_shape = [patch_shape[d] if patch_shape[d] != -1 else in_shape[d] for d in range(ndim)]
-    if datadim == "2.5d":
+    if datadim == "2.5d" and imgchannel is not None:
         patch_shape[-1] = imgchannel
     
     patch_stride = [patch_stride[d] if patch_stride[d] != -1 else patch_shape[d] for d in range(len(patch_shape))]
     
-    return u.PatchExtractor(dim=tuple(patch_shape), stride=tuple(patch_stride))
+    return PatchExtractor(dim=tuple(patch_shape), stride=tuple(patch_stride))
+
+
+def _transpose_patches_25d(in_content: np.ndarray, slice: str = 'XY', adj: bool = False):
+    slice = slice.lower()
+    if slice == "xt":
+        slice = "tx"
+    if slice == "yt":
+        slice = "ty"
+    
+    if adj:
+        if slice == 'xy':  # BXYT -> BTXY
+            in_content = in_content.transpose((0, 3, 1, 2))
+        elif slice == 'ty':  # BTYX -> BTXY
+            in_content = in_content.transpose((0, 1, 3, 2))
+        else:  # we already are in (t, x, y), great!
+            pass
+    else:
+        if slice == 'xy':  # BTXY -> BXYT
+            in_content = in_content.transpose((0, 2, 3, 1))
+        elif slice == 'ty':  # BTXY -> BTYX
+            in_content = in_content.transpose((0, 1, 3, 2))
+        else:
+            pass
+    return in_content
 
 
 def extract_patches(args) -> List[dict]:
@@ -206,19 +231,11 @@ def extract_patches(args) -> List[dict]:
     assert original.shape == corrupted.shape, "Original and Corrupted data must have the same dimension"
     assert original.ndim in [2, 3], "Data volumes have to be 2D or 3D"
     
-    if "lines" not in args.imgdir.lower():
-        corrupted = u.bool2bin(corrupted)
-    
-    if args.datadim == "2.5d":
-        if args.slice == 'XY':  # we start from (t, x, y) and we want (x, y, t) for t becomes c
-            original = original.transpose((1, 2, 0))
-            corrupted = corrupted.transpose((1, 2, 0))
-        elif args.slice == 'YT':  # we start from (t, x, y) and we want (t, y, x) for x becomes c
-            original = original.transpose((0, 2, 1))
-            corrupted = original.transpose((0, 2, 1))
-        else:  # we already are in (t, x, y), great!
-            pass
-    
+    # we have created masks in two ways: binary value (0 or 1) or a copy of the data with NaN traces
+    # adopt the binary representation
+    if np.isnan(corrupted).any():
+        corrupted = bool2bin(corrupted)
+
     pe = _get_patch_extractor(original.shape, args.patch_shape, args.patch_stride, args.datadim, args.imgchannel)
     
     if args.datadim == "2.5d":
@@ -229,9 +246,13 @@ def extract_patches(args) -> List[dict]:
     patches_img = pe.extract(original).reshape(final_shape)
     patches_msk = pe.extract(corrupted).reshape(final_shape)
     
+    if args.datadim == '2.5d':
+        patches_img = _transpose_patches_25d(patches_img, args.slice)
+        patches_msk = _transpose_patches_25d(patches_msk, args.slice)
+    
     outputs = []
     num_patches = patches_img.shape[0]
-    _zeros = u.ten_digit(num_patches)
+    _zeros = ten_digit(num_patches)
     
     for p in range(num_patches):
         
@@ -239,7 +260,7 @@ def extract_patches(args) -> List[dict]:
         m = patches_msk[p]
         
         if args.adirandel > 0:
-            m = u.add_rand_mask(m, args.adirandel)
+            m = add_rand_mask(m, args.adirandel)
         
         outputs.append({'image': i * args.gain, 'mask': m, 'name': str(p).zfill(_zeros)})
     

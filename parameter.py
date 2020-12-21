@@ -14,9 +14,9 @@ def parse_arguments() -> Namespace:
                         help='gain for the input')
     parser.add_argument('--datadim', type=str, required=False, default='2d', choices=['2d', '2.5d', '3d'],
                         help='The dimensionality of the data')
-    parser.add_argument('--slice', type=str, required=False, default='XY', choices=['XT', 'YT', 'XY'],
+    parser.add_argument('--slice', type=str, required=False, default='xy', choices=['tx', 'ty', 'xy'],
                         help='The type of slice of 3D data, only usefull when datadim=2.5d')
-    parser.add_argument('--imgchannel', type=int, required=False, default=1,
+    parser.add_argument('--imgchannel', type=int, required=False,
                         help='Number of 2.5d patches to be stacked in the channel dimension.')
     parser.add_argument('--adirandel', type=float, required=False, default=0.,
                         help='The percent of addictive random deleting samples')
@@ -84,10 +84,6 @@ def parse_arguments() -> Namespace:
                         help='LR patience for Plateau scheduler.')
     parser.add_argument('--save_every', type=int, required=False,
                         help='Number of epochs every which to save the results')
-    parser.add_argument('--mask_th', type=int, default=10000, required=False,
-                        help='Update mask when iteration larger than threshold')
-    parser.add_argument('--mask_step', type=int, default=200, required=False,
-                        help='Update mask step')
     parser.add_argument('--start_from_prev', action='store_true', default=False,
                         help='Start training from previous patch')
     parser.add_argument('--reduce_lr', action='store_true', default=False,

@@ -8,11 +8,13 @@ from termcolor import colored
 
 from parameter import parse_arguments
 from architectures import UNet, MulResUnet, MulResUnet3D, AttMulResUnet2D, PartialConvUNet, PartialConv3DUNet
-from data import extract_patches
 import utils as u
+from data import extract_patches
 
 warnings.filterwarnings("ignore")
 u.set_seed()
+
+from utils.results import OldHistory as History
 
 
 class Training:
@@ -41,7 +43,6 @@ class Training:
         self.mask_ = None
         self.out_best = None
         self.out_old = None
-        
         self.zfill = u.ten_digit(self.args.epochs)
         
         # build input tensors
@@ -91,6 +92,8 @@ class Training:
         print(colored('The input shape is %s' % str(tuple(self.input_.shape)), 'cyan'))
     
     def build_model(self, netpath: str = None):
+        if self.outchannel is None:
+            self.outchannel = self.img_.shape[1]
         if self.args.datadim in ['2d', '2.5d']:
             if self.args.net == 'unet':
                 self.net = UNet(
@@ -180,9 +183,8 @@ class Training:
         
         self.img_ = u.np_to_torch(np.transpose(self.img, re_sha)[np.newaxis]).type(self.dtype)
         self.mask_ = u.np_to_torch(np.transpose(self.mask, re_sha)[np.newaxis]).type(self.dtype)
-        
-        self.mask_update_fn = u.MaskUpdate(self.mask_, self.args.mask_th, self.args.mask_step)
-        
+        self.coarse_img_ = self.img_ * self.mask_
+
         # compute std on coarse data for skipping all-zeros patches
         input_std = torch.std(self.img_ * self.mask_).item()
         return input_std
@@ -205,21 +207,15 @@ class Training:
         
         # compute output
         out_ = self.net(input_)
-        if self.iiter % self.args.mask_step == 0:
-            self.out_old = out_.clone().detach()
-        
-        # compute the new mask and new related input
-        mask_ = self.mask_update_fn.update(self.iiter)
-        image_ = self.img_ * self.mask_ + (mask_ - self.mask_) * self.out_old
         
         # compute the loss function
-        total_loss = self.loss_fn(out_ * mask_, image_)
+        total_loss = self.loss_fn(out_ * self.mask_, self.coarse_img_)
         total_loss.backward()
         
         # save loss and metrics, and print log
         l = total_loss.item()
-        s = u.snr(output=out_ * (1 - self.mask_) + self.img_ * self.mask_, target=self.img_).item()
-        p = u.pcorr(output=out_ * (1 - self.mask_), target=self.img_ * (1 - self.mask_)).item()
+        s = u.snr(output=out_, target=self.img_).item()
+        p = u.pcorr(output=out_, target=self.img_).item()
         self.history.append((l, s, p))
         self.history.lr.append(self.optimizer.param_groups[0]['lr'])
         print(colored(self.history.log_message(self.iiter), 'yellow'), '\r', end='')
@@ -338,7 +334,7 @@ def main() -> None:
             T.elapsed = 0.
         else:
             # TODO add the transfer learning option
-            if i == 0 or not args.start_from_prev:
+            if i == 0 or (args.start_from_prev and T.net is None):
                 T.build_model()
             T.build_input()
             T.optimize()
