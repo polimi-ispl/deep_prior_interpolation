@@ -70,7 +70,7 @@ We are glad you want to try our method on your data! To minimize the effort, kee
  If you have 2D native datasets, please add an extra axis.
  - If you process the data in a 2.5D fashion, the tensors will be transposed in order to 
  tile the patches in the last dimension (as they are a channel).
- This procedure is automatic and should be reversed in the patch assembly in utils' `show_results`.
+ This procedure is automatic and should be reversed in the patch assembly in `data.reconstruct_patches`.
  - The subsampling mask can be made of 0 and 1; however we prefer to store the "decimated" version of the data, with NaN missing traces.
  This has the advantage of removing the ambiguity given by the zeros in the data and the zeros in the mask. 
  Nonetheless, our codes can take into account both ways.
