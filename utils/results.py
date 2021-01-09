@@ -10,7 +10,7 @@ from random import sample
 OldHistory = namedtuple("History", ['loss', 'snr', 'pcorr'])
 
 
-def show_results(res_dir: Path or str, opts: dict = None, num: int = 6, savefig=False):
+def show_results(res_dir: Path or str, opts: dict = None, curves: int = 0, savefig=False):
     res_dir = Path(res_dir)
     args = u.read_args(res_dir / "args.txt")
     print(args.__dict__)
@@ -38,46 +38,47 @@ def show_results(res_dir: Path or str, opts: dict = None, num: int = 6, savefig=
         u.explode_volume(outputs, **opts)
     
     # plot curves
-    if len(hist) <= num:
-        idx = range(len(hist))
-    else:
-        idx = sample(range(len(hist)), num)
-        idx.sort()
-    
-    fig, axs = plt.subplots(1, 4, figsize=(18, 4))
-    
-    for i in idx:
-        axs[0].plot(hist[i].loss, label='patch %d' % i)
-        axs[1].plot(hist[i].snr, label='patch %d' % i)
-        axs[2].plot(hist[i].pcorr, label='patch %d' % i)
+    if curves > 0:
+        if len(hist) <= curves:
+            idx = range(len(hist))
+        else:
+            idx = sample(range(len(hist)), curves)
+            idx.sort()
+        
+        fig, axs = plt.subplots(1, 4, figsize=(18, 4))
+        
+        for i in idx:
+            axs[0].plot(hist[i].loss, label='patch %d' % i)
+            axs[1].plot(hist[i].snr, label='patch %d' % i)
+            axs[2].plot(hist[i].pcorr, label='patch %d' % i)
+            try:
+                axs[3].plot(hist[i].lr, label='patch %d' % i)
+            except AttributeError:
+                pass
+        
         try:
-            axs[3].plot(hist[i].lr, label='patch %d' % i)
+            axs[0].set_title('LOSS %s' % args.loss)
         except AttributeError:
-            pass
-    
-    try:
-        axs[0].set_title('LOSS %s' % args.loss)
-    except AttributeError:
-        axs[0].set_title('LOSS mae')
-    axs[1].set_title('SNR = %.2f dB' % u.snr(outputs, inputs))
-    axs[2].set_title('PCORR = %.2f %%' % (u.pcorr(outputs, inputs) * 100))
-    axs[3].set_title('Learning Rate')
-    
-    for a in axs:
-        a.legend()
-        a.set_xlim(0, args.epochs)
-        a.grid()
-    
-    axs[0].set_ylim(0)
-    axs[1].set_ylim(0)
-    axs[2].set_ylim(0, 1)
-    axs[3].set_ylim(0, args.lr * 10)
-    
-    plt.suptitle(res_dir)
-    plt.tight_layout(pad=.5)
-    if savefig:
-        plt.savefig(res_dir / f"curves.{opts['save_opts']['format']}", **opts['save_opts'])
-    plt.show()
+            axs[0].set_title('LOSS mae')
+        axs[1].set_title('SNR = %.2f dB' % u.snr(outputs, inputs))
+        axs[2].set_title('PCORR = %.2f %%' % (u.pcorr(outputs, inputs) * 100))
+        axs[3].set_title('Learning Rate')
+        
+        for a in axs:
+            a.legend()
+            a.set_xlim(0, args.epochs)
+            a.grid()
+        
+        axs[0].set_ylim(0)
+        axs[1].set_ylim(0)
+        axs[2].set_ylim(0, 1)
+        axs[3].set_ylim(0, args.lr * 10)
+        
+        plt.suptitle(res_dir)
+        plt.tight_layout(pad=.5)
+        if savefig:
+            plt.savefig(res_dir / f"curves.{opts['save_opts']['format']}", **opts['save_opts'])
+        plt.show()
 
 
 __all__ = [
