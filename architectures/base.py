@@ -109,18 +109,12 @@ def act(act_fun='LeakyReLU'):
             return nn.ReLU()
         elif act_fun == 'Tanh':
             return nn.Tanh()
+        elif act_fun == 'Sigmoid':
+            return nn.Sigmoid()
         else:
             assert False
     else:
         return act_fun()
-
-
-def bn(num_features):
-    return nn.BatchNorm2d(num_features)
-
-
-def bn3d(num_features):
-    return nn.BatchNorm3d(num_features)
 
 
 def conv(in_f, out_f, kernel_size, stride=1, bias=True):
@@ -129,8 +123,7 @@ def conv(in_f, out_f, kernel_size, stride=1, bias=True):
     """
     to_pad = int((kernel_size - 1) / 2)
     
-    convolver = nn.Conv2d(in_f, out_f, kernel_size,
-                          stride, padding=to_pad, bias=bias)
+    convolver = nn.Conv2d(in_f, out_f, kernel_size, stride, padding=to_pad, bias=bias)
     
     layers = filter(lambda x: x is not None, [convolver])
     return nn.Sequential(*layers)
@@ -171,7 +164,7 @@ def conv_mod(in_f, out_f, kernel_size, stride=1, bias=True, pad='zero', downsamp
 
 def conv2dbn(in_f, out_f, kernel_size, stride=1, bias=True, act_fun='LeakyReLU'):
     block = conv(in_f, out_f, kernel_size, stride=stride, bias=bias)
-    block.add(bn(out_f))
+    block.add(nn.BatchNorm2d(out_f))
     block.add(act(act_fun))
     return block
 
@@ -378,3 +371,42 @@ class Symmetry(nn.Module):
     
     def forward(self, x):
         return (x + x.transpose(-2, -1)) / 2
+
+
+class Swish(nn.Module):
+    """
+    Swish activation function: x * Sigmoid(x)
+    """
+
+    def __init__(self):
+        super(Swish, self).__init__()
+        self.s = nn.Sigmoid()
+
+    def forward(self, x):
+        return x * self.s(x)
+
+
+class ListModule(nn.Module):
+    def __init__(self, *args):
+        super(ListModule, self).__init__()
+        idx = 0
+        for module in args:
+            self.add_module(str(idx), module)
+            idx += 1
+
+    def __getitem__(self, idx):
+        if idx >= len(self._modules):
+            raise IndexError('index {} is out of range'.format(idx))
+        if idx < 0:
+            idx = len(self) + idx
+
+        it = iter(self._modules.values())
+        for i in range(idx):
+            next(it)
+        return next(it)
+
+    def __iter__(self):
+        return iter(self._modules.values())
+
+    def __len__(self):
+        return len(self._modules)

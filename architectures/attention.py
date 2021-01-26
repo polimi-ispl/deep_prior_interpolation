@@ -2,7 +2,7 @@
 import torch
 from torch import nn
 from collections import OrderedDict
-from .base import concat, bn, act, conv, conv2dbn
+from .base import concat, act, conv, conv2dbn
 from .mulresunet import MultiResBlock
 
 
@@ -91,12 +91,12 @@ class GridAttentionBlock(nn.Module):
         super(GridAttentionBlock, self).__init__()
         self.W_g = nn.Sequential(
             conv(F_g, F_int, 1, 1),
-            bn(F_int)
+            nn.BatchNorm2d(F_int)
         )
         
         self.W_x = nn.Sequential(
             conv(F_l, F_int, 3, 2),
-            bn(F_int)
+            nn.BatchNorm2d(F_int)
         )
         
         self.psi = nn.Sequential(
@@ -199,8 +199,8 @@ class AttMulResUnet2D(nn.Module):
     
     def __init__(self, num_input_channels=1, num_output_channels=3,
                  num_channels_down=[16, 32, 64, 128, 256],
-                 alpha=1.67, need_sigmoid=False, need_bias=True,
-                 upsample_mode='nearest', act_fun='LeakyReLU') -> None:
+                 alpha=1.67, last_act_fun=None, need_bias=True,
+                 upsample_mode='nearest', act_fun='LeakyReLU'):
         """
             The 3D multi-resolution Unet
         Arguments:
@@ -231,7 +231,7 @@ class AttMulResUnet2D(nn.Module):
         for i in range(1, n_scales):
             setattr(self, 'down%d' % i, nn.Sequential(*[
                 conv(input_depths[i], input_depths[i], 3, stride=2, bias=need_bias),
-                bn(input_depths[i]),
+                nn.BatchNorm2d(input_depths[i]),
                 act(act_fun)
             ]))
             mrb = MultiResBlock(num_channels_down[-(i + 1)], input_depths[-i] + input_depths[-(i + 1)])
@@ -240,10 +240,13 @@ class AttMulResUnet2D(nn.Module):
                     GridAttentionBlock(input_depths[-i],
                                        input_depths[-(i + 1)], num_channels_down[-i]))
             setattr(self, 'up%d' % i, nn.Upsample(scale_factor=2, mode=upsample_mode[i]))
-        if need_sigmoid:
+
+        if isinstance(last_act_fun, str) and last_act_fun.lower() == 'none':
+            last_act_fun = None
+        if last_act_fun is not None:
             self.outconv = nn.Sequential(*[
                 conv(input_depths[1], num_output_channels, 1, 1, bias=need_bias),
-                nn.Sigmoid()])
+                act(last_act_fun)])
         else:
             self.outconv = conv(input_depths[1], num_output_channels, 1, 1, bias=need_bias)
     

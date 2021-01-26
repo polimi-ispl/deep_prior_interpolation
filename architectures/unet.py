@@ -1,113 +1,67 @@
 import torch
 import torch.nn as nn
-from .base import conv_mod
+from .base import conv_mod, ListModule, act
 
 
-class GenNoise(nn.Module):
-    def __init__(self, dim2):
-        super(GenNoise, self).__init__()
-        self.dim2 = dim2
-
-    def forward(self, input):
-        a = list(input.size())
-        a[1] = self.dim2
-        # print (input.data.type())
-
-        b = torch.zeros(a).type_as(input.data)
-        b.normal_()
-
-        x = torch.autograd.Variable(b)
-
-        return x
-
-
-class Swish(nn.Module):
-    """
-        https://arxiv.org/abs/1710.05941
-        The hype was so huge that I could not help but try it
-    """
-
-    def __init__(self):
-        super(Swish, self).__init__()
-        self.s = nn.Sigmoid()
-
-    def forward(self, x):
-        return x * self.s(x)
-
-
-class ListModule(nn.Module):
-    def __init__(self, *args):
-        super(ListModule, self).__init__()
-        idx = 0
-        for module in args:
-            self.add_module(str(idx), module)
-            idx += 1
-
-    def __getitem__(self, idx):
-        if idx >= len(self._modules):
-            raise IndexError('index {} is out of range'.format(idx))
-        if idx < 0:
-            idx = len(self) + idx
-
-        it = iter(self._modules.values())
-        for i in range(idx):
-            next(it)
-        return next(it)
-
-    def __iter__(self):
-        return iter(self._modules.values())
-
-    def __len__(self):
-        return len(self._modules)
-
-
-class unetConv2(nn.Module):
-    def __init__(self, in_size, out_size, norm_layer, need_bias, pad, act_fun):
-        super(unetConv2, self).__init__()
+class unetConv(nn.Module):
+    def __init__(self, in_size, out_size, norm_layer, need_bias, pad, act_fun, drop=0.):
+        super(unetConv, self).__init__()
 
         # print(pad)
         if norm_layer is not None:
             self.conv1 = nn.Sequential(conv_mod(in_size, out_size, 3, bias=need_bias, pad=pad),
-                                       norm_layer(out_size), act_fun, )
+                                       norm_layer(out_size),
+                                       act_fun,)
             self.conv2 = nn.Sequential(conv_mod(out_size, out_size, 3, bias=need_bias, pad=pad),
-                                       norm_layer(out_size), act_fun, )
+                                       norm_layer(out_size),
+                                       act_fun,)
         else:
-            self.conv1 = nn.Sequential(conv_mod(in_size, out_size, 3, bias=need_bias, pad=pad), act_fun, )
-            self.conv2 = nn.Sequential(conv_mod(out_size, out_size, 3, bias=need_bias, pad=pad), act_fun, )
-
+            self.conv1 = nn.Sequential(conv_mod(in_size, out_size, 3, bias=need_bias, pad=pad),
+                                       act_fun,)
+            self.conv2 = nn.Sequential(conv_mod(out_size, out_size, 3, bias=need_bias, pad=pad),
+                                       act_fun,)
+        
+        self.dr = nn.Dropout2d(drop)
+        
     def forward(self, inputs):
         outputs = self.conv1(inputs)
+        outputs = self.dr(outputs)
         outputs = self.conv2(outputs)
+        outputs = self.dr(outputs)
         return outputs
 
 
 class unetDown(nn.Module):
-    def __init__(self, in_size, out_size, norm_layer, need_bias, pad, act_fun):
+    def __init__(self, in_size, out_size, norm_layer, need_bias, pad, act_fun, drop=0.):
         super(unetDown, self).__init__()
-        self.conv = unetConv2(in_size, out_size, norm_layer, need_bias, pad, act_fun)
+        self.conv = unetConv(in_size, out_size, norm_layer, need_bias, pad, act_fun)
         self.down = nn.MaxPool2d(2, 2)
+        self.dr = nn.Dropout2d(drop)
 
     def forward(self, inputs):
         outputs = self.down(inputs)
+        outputs = self.dr(outputs)
         outputs = self.conv(outputs)
+        outputs = self.dr(outputs)
         return outputs
 
 
 class unetUp(nn.Module):
-    def __init__(self, out_size, upsample_mode, need_bias, pad, act_fun, same_num_filt=False):
+    def __init__(self, out_size, upsample_mode, need_bias, pad, act_fun, drop=0., same_num_filt=False):
         super(unetUp, self).__init__()
 
         num_filt = out_size if same_num_filt else out_size * 2
         if upsample_mode == 'deconv':
             self.up = nn.ConvTranspose2d(num_filt, out_size, 4, stride=2, padding=1)
-            self.conv = unetConv2(out_size * 2, out_size, None, need_bias, pad, act_fun)
+            self.conv = unetConv(out_size * 2, out_size, None, need_bias, pad, act_fun, drop)
         elif upsample_mode == 'bilinear' or upsample_mode == 'nearest':
             self.up = nn.Sequential(nn.Upsample(scale_factor=2, mode=upsample_mode),
                                     conv_mod(num_filt, out_size, 3, bias=need_bias, pad=pad))
-            self.conv = unetConv2(out_size * 2, out_size, None, need_bias, pad, act_fun)
+            self.conv = unetConv(out_size * 2, out_size, None, need_bias, pad, act_fun, drop)
         else:
             assert False
-
+        self.dr = nn.Dropout2d(drop)
+        
     def forward(self, inputs1, inputs2):
         in1_up = self.up(inputs1)
 
@@ -119,66 +73,61 @@ class unetUp(nn.Module):
             inputs2_ = inputs2
 
         output = self.conv(torch.cat([in1_up, inputs2_], 1))
-
+        output = self.dr(output)
         return output
     
     
 class UNet(nn.Module):
     """
-        upsample_mode in ['deconv', 'nearest', 'bilinear']
+        upsample_mode in ['deconv', 'nearest', 'linear']
         pad in ['zero', 'replication', 'none']
     """
 
-    def __init__(self, num_input_channels=3, num_output_channels=3,
+    def __init__(self, num_input_channels=1, num_output_channels=1,
                  filters=[16, 32, 64, 128, 256], more_layers=0, concat_x=False,
-                 activation='ReLU', upsample_mode='deconv', pad='zero',
-                 norm_layer=nn.InstanceNorm2d, need_sigmoid=True, need_bias=True):
+                 act_fun='ReLU', upsample_mode='deconv', pad='zero', dropout=0.,
+                 norm_layer=nn.InstanceNorm2d, last_act_fun=None, need_bias=True):
         super(UNet, self).__init__()
 
         self.more_layers = more_layers
         self.concat_x = concat_x
 
-        if activation == "ReLU":
-            act_fun = nn.ReLU()
-        elif activation == "Tanh":
-            act_fun = nn.Tanh()
-        elif activation == "LeakyReLU":
-            act_fun = nn.LeakyReLU(0.2, inplace=True)
-        else:
-            raise ValueError("Activation has to be in [ReLU, Tanh, LeakyReLU]")
-
-        self.start = unetConv2(num_input_channels, filters[0] if not concat_x else filters[0] - num_input_channels,
-                               norm_layer, need_bias, pad, act_fun)
+        act_fun = act(act_fun)
+        
+        self.start = unetConv(num_input_channels, filters[0] if not concat_x else filters[0] - num_input_channels,
+                              norm_layer, need_bias, pad, act_fun, dropout)
 
         self.down1 = unetDown(filters[0], filters[1] if not concat_x else filters[1] - num_input_channels, norm_layer,
-                              need_bias, pad, act_fun)
+                              need_bias, pad, act_fun, dropout)
         self.down2 = unetDown(filters[1], filters[2] if not concat_x else filters[2] - num_input_channels, norm_layer,
-                              need_bias, pad, act_fun)
+                              need_bias, pad, act_fun, dropout)
         self.down3 = unetDown(filters[2], filters[3] if not concat_x else filters[3] - num_input_channels, norm_layer,
-                              need_bias, pad, act_fun)
+                              need_bias, pad, act_fun, dropout)
         self.down4 = unetDown(filters[3], filters[4] if not concat_x else filters[4] - num_input_channels, norm_layer,
-                              need_bias, pad, act_fun)
-
+                              need_bias, pad, act_fun, dropout)
+        
         # more downsampling layers
         if self.more_layers > 0:
-            self.more_downs = [
-                unetDown(filters[4], filters[4] if not concat_x else filters[4] - num_input_channels, norm_layer,
-                         need_bias, pad, act_fun) for i in range(self.more_layers)]
-            self.more_ups = [unetUp(filters[4], upsample_mode, need_bias, pad, act_fun, same_num_filt=True) for i in
-                             range(self.more_layers)]
+            self.more_downs = [unetDown(filters[4], filters[4] if not concat_x else filters[4] - num_input_channels, norm_layer,
+                                        need_bias, pad, act_fun, dropout)
+                               for _ in range(self.more_layers)]
+            self.more_ups = [unetUp(filters[4], upsample_mode, need_bias, pad, act_fun, dropout, same_num_filt=True)
+                             for _ in range(self.more_layers)]
 
             self.more_downs = ListModule(*self.more_downs)
             self.more_ups = ListModule(*self.more_ups)
 
-        self.up4 = unetUp(filters[3], upsample_mode, need_bias, pad, act_fun)
-        self.up3 = unetUp(filters[2], upsample_mode, need_bias, pad, act_fun)
-        self.up2 = unetUp(filters[1], upsample_mode, need_bias, pad, act_fun)
-        self.up1 = unetUp(filters[0], upsample_mode, need_bias, pad, act_fun)
+        self.up4 = unetUp(filters[3], upsample_mode, need_bias, pad, act_fun, dropout)
+        self.up3 = unetUp(filters[2], upsample_mode, need_bias, pad, act_fun, dropout)
+        self.up2 = unetUp(filters[1], upsample_mode, need_bias, pad, act_fun, dropout)
+        self.up1 = unetUp(filters[0], upsample_mode, need_bias, pad, act_fun, dropout)
 
         self.final = conv_mod(filters[0], num_output_channels, 1, bias=need_bias, pad=pad)
 
-        if need_sigmoid:
-            self.final = nn.Sequential(self.final, nn.Sigmoid())
+        if isinstance(last_act_fun, str) and last_act_fun.lower() == 'none':
+            last_act_fun = None
+        if last_act_fun is not None:
+            self.final = nn.Sequential(self.final, act(last_act_fun))
 
     def forward(self, inputs):
 
