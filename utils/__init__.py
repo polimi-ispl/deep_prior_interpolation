@@ -6,3 +6,5 @@ from .processing import *
 from .patch_extractor import *
 from .pocs import *
 from .results import *
+from .slopes import *
+from .mask import *
