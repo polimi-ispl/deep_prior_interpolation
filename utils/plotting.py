@@ -6,7 +6,7 @@ from imageio import mimsave
 from cv2 import resize
 
 
-def clim(in_content, ratio=95):
+def clim(in_content: np.ndarray, ratio: float = 95) -> Tuple[float, float]:
     c = np.percentile(np.absolute(in_content), ratio)
     return -c, c
 
