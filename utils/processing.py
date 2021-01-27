@@ -31,38 +31,58 @@ def bool2bin(in_content: np.ndarray, logic: bool = True):
     return temp
 
 
-def filter_noise_traces(in_content: np.ndarray, filt: np.ndarray) -> np.ndarray:
-    assert filt.ndim == 1, "filter has to be a 1D array"
-
-    filtered = convolve1d(in_content, filt, axis=2)
+class ConvolveKernel_1d(torch.nn.Module):
+    """
+    Convolution module for BC[TXY] tensors built upon 1D kernel.
+    Useful for "batch" filtering tensors along the 3rd axis (time).
+    """
     
-    return filtered
-
-
-def filter_noise_butter(in_content, fs, cutoff, order=4):
-    nyq = 0.5 * fs
-    normal_cutoff = cutoff / nyq
-    b, a = butter(order, normal_cutoff, btype='low', analog=False)
-    return filtfilt(b, a, in_content, axis=2)
- 
-
-class LowPassButterworth2D(torch.nn.Module):
-    
-    def __init__(self, fc, fs=None, ntaps=101, order=4, nfft=1024, dtype=torch.cuda.FloatTensor):
-        super(LowPassButterworth2D, self).__init__()
+    def __init__(self, kernel: np.ndarray, ndim : int = 2, dtype=torch.cuda.FloatTensor):
+        super(ConvolveKernel_1d, self).__init__()
         
-        b, a = butter(order, fc, fs=fs, btype='low', analog=False)
-        w_iir, h_iir = freqz(b, a, worN=nfft, fs=fs)
-        self.taps = firls(ntaps, w_iir, abs(h_iir), fs=fs)
+        # 1D kernel for convolution (e.g., a 1D wavelet or filter taps)
+        assert kernel.ndim == 1
+        self.taps = kernel
+        self.pad = self.taps.size // 2
         
-        kernel = torch.zeros((ntaps, ntaps))
-        kernel[:, kernel.shape[1] // 2] = torch.from_numpy(self.taps)
+        if ndim == 1:
+            self.kernel = torch.from_numpy(self.taps).float().unsqueeze(0).unsqueeze(0).type(dtype)
+            self.forward_fn = torch.nn.functional.conv_transpose1d
+        elif ndim == 2:
+            kernel = torch.zeros([kernel.size] * ndim)
+            kernel[self.pad] = torch.from_numpy(self.taps)
+            self.kernel = kernel.transpose(0, -1).float().unsqueeze(0).unsqueeze(0).type(dtype)
+            self.forward_fn = torch.nn.functional.conv_transpose2d
         
-        self.kernel = kernel.float().unsqueeze(0).unsqueeze(0).type(dtype)
-        self.pad = kernel.shape[-1] // 2
+        elif ndim == 3:
+            kernel = torch.zeros([kernel.size] * ndim)
+            kernel[self.pad, self.pad] = torch.from_numpy(self.taps)
+            self.kernel = kernel.transpose(0, -1).float().unsqueeze(0).unsqueeze(0).type(dtype)
+            self.forward_fn = torch.nn.functional.conv_transpose3d
     
     def forward(self, input):
-        return torch.nn.functional.conv_transpose2d(input, self.kernel, padding=self.pad)
+        nc = input.shape[1]  # channels
+        rep = [nc] + [1] * (self.kernel.ndim - 1)  # number of repetitions for the kernel
+        return self.forward_fn(input, self.kernel.repeat(rep),
+                               padding=self.pad, groups=nc)
+
+
+class LowPassButterworth(ConvolveKernel_1d):
+    
+    def __init__(self, fc, ndim=2, fs=None, ntaps=101, order=2, nfft=1024, dtype=torch.cuda.FloatTensor):
+        
+        # build the convolution kernel
+        b, a = butter(order, fc, fs=fs, btype='low', analog=False)
+        w_iir, h_iir = freqz(b, a, worN=nfft, fs=fs)
+        taps = firls(ntaps, w_iir, abs(h_iir), fs=fs)
+        
+        super(LowPassButterworth, self).__init__(kernel=taps, ndim=ndim, dtype=dtype)
+    
+
+class LowPassButterworth2D(LowPassButterworth):
+    
+    def __init__(self, fc, fs=None, ntaps=101, order=4, nfft=1024, dtype=torch.cuda.FloatTensor):
+        super(LowPassButterworth2D, self).__init__(fc=fc, ndim=2, fs=fs, ntaps=ntaps, order=order, nfft=nfft, dtype=dtype)
 
 
 def _gaussian_kernel(M: int, std: float, sym=True) -> torch.Tensor:
@@ -165,8 +185,8 @@ __all__ = [
     "normalize",
     "denormalize",
     "bool2bin",
-    "filter_noise_traces",
-    "filter_noise_butter",
+    "ConvolveKernel_1d",
+    "LowPassButterworth",
     "LowPassButterworth2D",
     "GaussianFilter",
     "ricker_wavelet",

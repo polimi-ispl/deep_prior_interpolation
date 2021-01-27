@@ -7,7 +7,7 @@ from time import time
 from termcolor import colored
 
 from parameter import parse_arguments
-from architectures import UNet, MulResUnet, MulResUnet3D, AttMulResUnet2D, PartialConvUNet, PartialConv3DUNet
+from architectures import UNet, MulResUnet, MulResUnet3D, AttMulResUnet2D, PartialUNet, PartialUNet3D
 from data import extract_patches
 import utils as u
 
@@ -69,14 +69,26 @@ class Training:
         self.input_ = u.get_noise(shape=(1, self.args.inputdepth) + data_shape,
                                   noise_type=self.args.noise_dist).type(self.dtype)
         self.input_ *= self.args.noise_std
-        
+
         if self.args.filter_noise_with_wavelet:
-            self.input_ = u.np_to_torch(
-                u.filter_noise_traces(
-                    self.input_.detach().clone().cpu().numpy(),
-                    np.load(os.path.join(self.args.imgdir, 'wavelet.npy'))
-                )
-            ).type(self.dtype)
+            W = u.ConvolveKernel_1d(
+                kernel=np.load(os.path.join(self.args.imgdir, 'wavelet.npy')),
+                ndim=self.input_.ndim - 2,
+                dtype=self.dtype,
+            )
+            self.input_ = W(self.input_)
+
+        if self.args.lowpass_fs and self.args.lowpass_fc:
+            print(colored("filtering the input tensor with a low pass Butterworth...", "cyan"))
+            # low pass filter input noise tensor with a 4th order butterworth
+            LPF = u.LowPassButterworth(fc=self.args.lowpass_fc,
+                                       ndim=self.input_.ndim - 2,
+                                       fs=self.args.lowpass_fs,
+                                       ntaps=101,
+                                       order=4,
+                                       nfft=2 ** u.nextpow2(self.input_.shape[2]),
+                                       dtype=self.dtype)
+            self.input_ = LPF(self.input_)
             
         if self.args.data_forgetting_factor != 0:
             # build decimated data tensor
@@ -104,7 +116,7 @@ class Training:
                     upsample_mode=self.args.upsample,  # default is bilinear
                     need_sigmoid=self.args.need_sigmoid,
                     need_bias=True,
-                    activation=self.args.activation  #
+                    act_fun=self.args.act  #
                 )
             elif self.args.net == 'attmultiunet':
                 self.net = AttMulResUnet2D(
@@ -114,10 +126,10 @@ class Training:
                     upsample_mode=self.args.upsample,  # default is bilinear
                     need_sigmoid=self.args.need_sigmoid,
                     need_bias=True,
-                    act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                    act_fun=self.args.act  # default is LeakyReLU).type(self.dtype)
                 )
             elif self.args.net == 'part':
-                self.net = PartialConvUNet(self.args.inputdepth, self.outchannel)
+                self.net = PartialUNet(self.args.inputdepth, self.outchannel)
             else:
                 self.net = MulResUnet(
                     num_input_channels=self.args.inputdepth,
@@ -128,11 +140,11 @@ class Training:
                     upsample_mode=self.args.upsample,  # default is bilinear
                     need_sigmoid=self.args.need_sigmoid,
                     need_bias=True,
-                    act_fun=self.args.activation  # default is LeakyReLU
+                    act_fun=self.args.act  # default is LeakyReLU
                 )
         else:
             if self.args.net == 'part':
-                self.net = PartialConv3DUNet(self.args.inputdepth, self.outchannel)
+                self.net = PartialUNet3D(self.args.inputdepth, self.outchannel)
             elif self.args.net == 'load':
                 self.net = MulResUnet3D(
                     num_input_channels=self.args.inputdepth,
@@ -143,7 +155,7 @@ class Training:
                     upsample_mode=self.args.upsample,  # default is bilinear
                     need_sigmoid=self.args.need_sigmoid,
                     need_bias=True,
-                    act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                    act_fun=self.args.act  # default is LeakyReLU).type(self.dtype)
                 )
                 self.net.load_state_dict(torch.load(netpath))
             else:
@@ -156,7 +168,7 @@ class Training:
                     upsample_mode=self.args.upsample,  # default is bilinear
                     need_sigmoid=self.args.need_sigmoid,
                     need_bias=True,
-                    act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                    act_fun=self.args.act  # default is LeakyReLU).type(self.dtype)
                 )
         
         self.net = self.net.type(self.dtype)

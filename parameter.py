@@ -34,10 +34,13 @@ def parse_arguments() -> Namespace:
     parser.add_argument('--gpu', type=int, required=False, default=-1,
                         help='GPU to use (default lowest memory usage)')
     parser.add_argument('--activation', type=str, default='LeakyReLU', required=False,
-                        choices=['LeakyReLU', 'ReLU', 'Tanh'],
+                        choices=['LeakyReLU', 'ReLU', 'ELU', 'Tanh', 'Sigmoid'],
                         help='Activation function to be used in the convolution block')
-    parser.add_argument('--need_sigmoid', action='store_true', default=False,
-                        help='Apply a sigmoid activation to the network output')
+    parser.add_argument('--last_activation', type=str, required=False,
+                        choices=['LeakyReLU', 'ReLU', 'ELU', 'Tanh', 'Sigmoid'],
+                        help='Activation function to the network output')
+    parser.add_argument('--dropout', type=float, default=0., required=False,
+                        help='Dropout rate to be applied in each convolution')
     parser.add_argument('--filters', nargs='+', type=int, required=False, default=[16, 32, 64, 128, 256],
                         help='Numbers of channels in every layer of encoder and decoder')
     parser.add_argument('--skip', nargs='+', type=int, required=False, default=[16, 32, 64, 128],
@@ -69,6 +72,12 @@ def parse_arguments() -> Namespace:
                         help='Duration of additional decimated data to the input noise tensor')
     parser.add_argument('--filter_noise_with_wavelet', action='store_true', default=False,
                         help='Filter input noise tensor with the wavelet bandwidth')
+    parser.add_argument('--lowpass_fs', type=float, required=False,
+                        help='Filter input noise tensor with a 4th order Butterworth LPF: sampling frequency')
+    parser.add_argument('--lowpass_fc', type=float, required=False,
+                        help='Filter input noise tensor with a 4th order Butterworth LPF: cutoff frequency')
+    parser.add_argument('--lowpass_ntaps', type=int, required=False, default=7,
+                        help='Low pass filter lenght')
     # training
     parser.add_argument('--loss', type=str, required=False, choices=['mae', 'mse'], default='mae',
                         help='Loss function to be used.')

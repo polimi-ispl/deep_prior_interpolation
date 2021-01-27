@@ -189,9 +189,12 @@ class Partial3DBlock(nn.Module):
 
 class PartialUNet(nn.Module):
     
-    # 256 x 256 image input, 256 = 2^8
-    def __init__(self, num_input_channels=1, num_output_channels=1,
-                 use_bn=True, need_bias=True, act_fun='LeakyReLU', dropout=0.):
+    def __init__(self, num_input_channels=1,
+                 num_output_channels=1,
+                 use_bn=True,
+                 need_bias=True,
+                 act_fun='LeakyReLU',
+                 dropout=0.):
         super(PartialUNet, self).__init__()
         self.layers = 5
         
@@ -244,8 +247,12 @@ class PartialUNet(nn.Module):
 
 class PartialUNet3D(nn.Module):
     
-    def __init__(self, num_input_channels=1, num_output_channels=1,
-                 use_bn=True, need_bias=True, act_fun='LeakyReLU', dropout=0.):
+    def __init__(self, num_input_channels=1,
+                 num_output_channels=1,
+                 use_bn=True,
+                 need_bias=True,
+                 act_fun='LeakyReLU',
+                 dropout=0.):
         super(PartialUNet3D, self).__init__()
         self.layers = 5
         

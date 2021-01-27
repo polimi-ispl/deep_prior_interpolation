@@ -12,3 +12,16 @@ main_rnn.py
 new3dseg.ipynb
 prepare_marmousi3d.ipynb
 pocs/
+antialiasing_f3.ipynb
+antialiasing_viking.ipynb
+datasets/hyperbolic3d/wavelet.npy
+datasets/hyperbolic3d/wavelet_spectrum.npy
+datasets/lines/original.npy
+datasets/lines/random50.npy
+datasets/lines/regular50.npy
+datasets/lines/regular66.npy
+datasets/lines/sinusoids.npy
+gom.ipynb
+seismic_inversion_1D.ipynb
+seismic_inversion_2D.ipynb
+weak hyperbolic events.ipynb

@@ -217,7 +217,7 @@ def MulResUnet3D(num_input_channels=1,
         multires = MultiRes3dBlock(num_channels_down[i], input_depth,
                                    alpha=alpha, act_fun=act_fun, bias=need_bias, drop=dropout)
         # add the stride downsampling for encoder
-        deeper.add(conv3d(input_depth, input_depth, 3, stride=2, bias=need_bias, drop=dropout))
+        deeper.add(conv3d(input_depth, input_depth, 3, stride=2, bias=need_bias))
         deeper.add(nn.BatchNorm3d(input_depth))
         deeper.add(act(act_fun))
         deeper.add(nn.Dropout3d(dropout))

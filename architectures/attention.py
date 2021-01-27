@@ -1,4 +1,3 @@
-# Attention network
 import torch
 from torch import nn
 from collections import OrderedDict
@@ -36,9 +35,7 @@ class ChannelPool(nn.Module):
 
 class SpatialGate(nn.Module):
     """
-        The channel block. process the feature extracted by encoder and decoder.
-        (Convolutional block attention module)
-        referenc (squeeze-and-excitation network)
+    The channel block. process the feature extracted by encoder and decoder.
     """
     
     def __init__(self, f_x, kernel_size=7):
@@ -59,7 +56,7 @@ class SpatialGate(nn.Module):
 
 class CBAM(nn.Module):
     """
-        The convolutional block attention module
+    The convolutional block attention module
     """
     
     def __init__(self, f_x, reduction_ratio=16, kernel_size=7):
@@ -117,7 +114,12 @@ class GridAttentionBlock(nn.Module):
 
 
 class AttentionUnet(nn.Module):
-    def __init__(self, fin=3, fout=1, act_fun='LeakyReLU', need_bias=True, att='cbam', reduce_ratio=4):
+    def __init__(self, fin=3,
+                 fout=1,
+                 act_fun='LeakyReLU',
+                 need_bias=True,
+                 att='cbam',
+                 reduce_ratio=4):
         super(AttentionUnet, self).__init__()
         self.downblock1 = nn.Sequential(OrderedDict({
             'conv1': conv2dbn(fin, 16, 3, 1, need_bias, act_fun),
@@ -197,24 +199,16 @@ class AttMulResUnet2D(nn.Module):
         The attention multi-resolution network
     """
     
-    def __init__(self, num_input_channels=1, num_output_channels=3,
+    def __init__(self, num_input_channels=1,
+                 num_output_channels=3,
                  num_channels_down=[16, 32, 64, 128, 256],
-                 alpha=1.67, last_act_fun=None, need_bias=True,
-                 upsample_mode='nearest', act_fun='LeakyReLU'):
-        """
-            The 3D multi-resolution Unet
-        Arguments:
-            num_input_channels (int) -- The channels of the input data.
-            num_output_channels (int) -- The channels of the output data.
-            num_channels_down (list) -- The channels of differnt layer in the encoder of networks.
-            num_channels_up (list) -- The channels of differnt layer in the decoder of networks.
-            num_channels_skip (list) -- The channels of path residual block corresponding to different layer.
-            alpha (float) -- the value multiplying to the number of filters.
-            need_sigmoid (Bool) -- if add the sigmoid layer in the last of decoder.
-            need_bias (Bool) -- If add the bias in every convolutional filters.
-            upsample_mode (str) -- The type of upsampling in the decoder, including 'bilinear' and 'nearest'.
-            act_fun (str) -- The activate function, including LeakyReLU, ReLU, Tanh, ELU.
-        """
+                 alpha=1.67,
+                 last_act_fun=None,
+                 need_bias=True,
+                 upsample_mode='nearest',
+                 act_fun='LeakyReLU',
+                 dropout=0.):
+
         super(AttMulResUnet2D, self).__init__()
         n_scales = len(num_channels_down)
         
@@ -224,7 +218,8 @@ class AttMulResUnet2D(nn.Module):
         input_depths = [num_input_channels]
         
         for i in range(n_scales):
-            mrb = MultiResBlock(num_channels_down[i], input_depths[-1])
+            mrb = MultiResBlock(num_channels_down[i], input_depths[-1],
+                                alpha=alpha, act_fun=act_fun, bias=need_bias, drop=dropout)
             input_depths.append(mrb.out_dim)
             setattr(self, 'down_mb%d' % (i + 1), mrb)
         
@@ -232,9 +227,11 @@ class AttMulResUnet2D(nn.Module):
             setattr(self, 'down%d' % i, nn.Sequential(*[
                 conv(input_depths[i], input_depths[i], 3, stride=2, bias=need_bias),
                 nn.BatchNorm2d(input_depths[i]),
-                act(act_fun)
+                act(act_fun),
+                nn.Dropout2d(dropout),
             ]))
-            mrb = MultiResBlock(num_channels_down[-(i + 1)], input_depths[-i] + input_depths[-(i + 1)])
+            mrb = MultiResBlock(num_channels_down[-(i + 1)], input_depths[-i] + input_depths[-(i + 1)],
+                                alpha=alpha, act_fun=act_fun, bias=need_bias, drop=dropout)
             setattr(self, 'up_mb%d' % i, mrb)
             setattr(self, 'att%d' % i,
                     GridAttentionBlock(input_depths[-i],
@@ -266,6 +263,5 @@ class AttMulResUnet2D(nn.Module):
 
 
 __all__ = [
-    "AttentionUnet",
     "AttMulResUnet2D",
 ]

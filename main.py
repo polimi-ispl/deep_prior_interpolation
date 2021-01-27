@@ -7,7 +7,7 @@ from time import time
 from termcolor import colored
 
 from parameter import parse_arguments
-from architectures import UNet, MulResUnet, MulResUnet3D, AttMulResUnet2D, PartialConvUNet, PartialConv3DUNet
+from architectures import UNet, MulResUnet, MulResUnet3D, AttMulResUnet2D, PartialUNet, PartialUNet3D
 import utils as u
 from data import extract_patches
 
@@ -68,13 +68,25 @@ class Training:
         self.input_ *= self.args.noise_std
         
         if self.args.filter_noise_with_wavelet:
-            self.input_ = u.np_to_torch(
-                u.filter_noise_traces(
-                    self.input_.detach().clone().cpu().numpy(),
-                    np.load(os.path.join(self.args.imgdir, 'wavelet.npy'))
-                )
-            ).type(self.dtype)
-            
+            W = u.ConvolveKernel_1d(
+                kernel=np.load(os.path.join(self.args.imgdir, 'wavelet.npy')),
+                ndim=self.input_.ndim - 2,
+                dtype=self.dtype,
+            )
+            self.input_ = W(self.input_)
+        
+        if self.args.lowpass_fs and self.args.lowpass_fc:
+            print(colored("filtering the input tensor with a low pass Butterworth...", "cyan"))
+            # low pass filter input noise tensor with a 4th order butterworth
+            LPF = u.LowPassButterworth(fc=self.args.lowpass_fc,
+                                       ndim=self.input_.ndim-2,
+                                       fs=self.args.lowpass_fs,
+                                       ntaps=self.args.lowpass_ntaps,
+                                       order=4,
+                                       nfft=2**u.nextpow2(self.input_.shape[2]),
+                                       dtype=self.dtype)
+            self.input_ = LPF(self.input_)
+        
         if self.args.data_forgetting_factor != 0:
             # build decimated data tensor
             data_ = self.img_ * self.mask_
@@ -100,23 +112,30 @@ class Training:
                     num_input_channels=self.args.inputdepth,
                     num_output_channels=self.outchannel,
                     filters=self.args.filters,
-                    upsample_mode=self.args.upsample,  # default is bilinear
-                    need_sigmoid=self.args.need_sigmoid,
+                    upsample_mode=self.args.upsample,
                     need_bias=True,
-                    activation=self.args.activation  #
+                    act_fun=self.args.activation,
+                    last_act_fun=self.args.last_activation,
+                    dropout=self.args.dropout,
                 )
             elif self.args.net == 'attmultiunet':
                 self.net = AttMulResUnet2D(
                     num_input_channels=self.args.inputdepth,
                     num_output_channels=self.outchannel,
                     num_channels_down=self.args.filters,
-                    upsample_mode=self.args.upsample,  # default is bilinear
-                    need_sigmoid=self.args.need_sigmoid,
+                    upsample_mode=self.args.upsample,
                     need_bias=True,
-                    act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                    act_fun=self.args.activation,
+                    last_act_fun=self.args.last_activation,
+                    dropout=self.args.dropout,
                 )
             elif self.args.net == 'part':
-                self.net = PartialConvUNet(self.args.inputdepth, self.outchannel)
+                self.net = PartialUNet(self.args.inputdepth,
+                                       self.outchannel,
+                                       use_bn=True,
+                                       need_bias=True,
+                                       act_fun=self.args.activation,
+                                       dropout=self.args.dropout)
             else:
                 self.net = MulResUnet(
                     num_input_channels=self.args.inputdepth,
@@ -124,14 +143,20 @@ class Training:
                     num_channels_down=self.args.filters,
                     num_channels_up=self.args.filters,
                     num_channels_skip=self.args.skip,
-                    upsample_mode=self.args.upsample,  # default is bilinear
-                    need_sigmoid=self.args.need_sigmoid,
+                    upsample_mode=self.args.upsample,
                     need_bias=True,
-                    act_fun=self.args.activation  # default is LeakyReLU
+                    act_fun=self.args.activation,
+                    last_act_fun=self.args.last_activation,
+                    dropout=self.args.dropout,
                 )
         else:
             if self.args.net == 'part':
-                self.net = PartialConv3DUNet(self.args.inputdepth, self.outchannel)
+                self.net = PartialUNet3D(self.args.inputdepth,
+                                         self.outchannel,
+                                         use_bn=True,
+                                         need_bias=True,
+                                         act_fun=self.args.activation,
+                                         dropout=self.args.dropout)
             elif self.args.net == 'load':
                 self.net = MulResUnet3D(
                     num_input_channels=self.args.inputdepth,
@@ -140,9 +165,10 @@ class Training:
                     num_channels_up=self.args.filters,
                     num_channels_skip=self.args.skip,
                     upsample_mode=self.args.upsample,  # default is bilinear
-                    need_sigmoid=self.args.need_sigmoid,
                     need_bias=True,
-                    act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                    act_fun=self.args.activation,
+                    last_act_fun=self.args.last_activation,
+                    dropout=self.args.dropout,
                 )
                 self.net.load_state_dict(torch.load(netpath))
             else:
@@ -153,9 +179,10 @@ class Training:
                     num_channels_up=self.args.filters,
                     num_channels_skip=self.args.skip,
                     upsample_mode=self.args.upsample,  # default is bilinear
-                    need_sigmoid=self.args.need_sigmoid,
                     need_bias=True,
-                    act_fun=self.args.activation  # default is LeakyReLU).type(self.dtype)
+                    act_fun=self.args.activation,
+                    last_act_fun=self.args.last_activation,
+                    dropout=self.args.dropout,
                 )
         
         self.net = self.net.type(self.dtype)
@@ -184,7 +211,7 @@ class Training:
         self.img_ = u.np_to_torch(np.transpose(self.img, re_sha)[np.newaxis]).type(self.dtype)
         self.mask_ = u.np_to_torch(np.transpose(self.mask, re_sha)[np.newaxis]).type(self.dtype)
         self.coarse_img_ = self.img_ * self.mask_
-
+        
         # compute std on coarse data for skipping all-zeros patches
         input_std = torch.std(self.img_ * self.mask_).item()
         return input_std
@@ -203,7 +230,7 @@ class Training:
         # adding data to the input noise
         if self.iiter < self.args.data_forgetting_factor:
             input_ += self.add_data_weight[self.iiter] * self.add_data_
-            self.input_list.append(u.torch_to_np(input_[0, 0]))
+            self.input_list.append(u.torch_to_np(input_, True))
         
         # compute output
         out_ = self.net(input_)
@@ -223,16 +250,18 @@ class Training:
         # save the output if the loss is decreasing
         if self.iiter == 0:
             self.loss_min = self.history.loss[-1]
-            self.out_best = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
+            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).transpose(
+                (1, 2, 0))
         elif self.history.loss[-1] <= self.loss_min:
             self.loss_min = self.history.loss[-1]
-            self.out_best = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
+            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).transpose(
+                (1, 2, 0))
         else:
             pass
         
         # saving intermediate outputs
         if self.iiter in self.iter_to_be_saved and self.iiter != 0:
-            out_img = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
+            out_img = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).transpose((1, 2, 0))
             np.save(os.path.join(self.outpath,
                                  self.image_name.split('.')[0] + '_output%s.npy' % str(self.iiter).zfill(self.zfill)),
                     out_img)
