@@ -4,9 +4,11 @@ results/
 datasets/marmousi3d
 datasets/netherlandsF3
 datasets/gom
+/datasets/viking/
 .idea/
 *.pdf
 *.sh
 main_rnn.py
 new3dseg.ipynb
 prepare_marmousi3d.ipynb
+pocs/

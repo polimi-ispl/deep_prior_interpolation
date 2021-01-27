@@ -83,28 +83,33 @@ def build_noise_tensor(input_depth, spatial_size, method='noise', noise_type='u'
     return net_input
 
 
-def np_to_torch(in_content: np.ndarray) -> torch.Tensor:
+def np_to_torch(in_content: np.ndarray, bc_add: bool = True) -> torch.Tensor:
     """
     Converts image in numpy.array to torch.Tensor.
     From C x W x H [0..1] to  C x W x H [0..1]
     """
-    return torch.from_numpy(in_content)
+    temp = torch.from_numpy(in_content)
+    if bc_add:
+        temp = batch_channel_add(temp)
+    return temp
 
 
-def torch_to_np(in_content: torch.Tensor) -> np.ndarray:
+def torch_to_np(in_content: torch.Tensor, bc_del: bool = True) -> np.ndarray:
     """
-    Converts an image in torch.Tensor format to np.array.
-    From 1 x C x W x H [0..1] to  C x W x H [0..1]
+    Converts torch.Tensor to np.array, removing batch and channel (if channel=1) if bc_del
     """
-    return in_content.detach().cpu().numpy()[0]
+    temp = in_content.detach().cpu().numpy()
+    if bc_del:
+        temp = temp.squeeze()
+    return temp
 
 
-def img_to_torch(in_content):
-    return np_to_torch(in_content).unsqueeze(0).unsqueeze(0)
+def batch_channel_add(in_content: torch.Tensor) -> torch.Tensor:
+    return in_content.unsqueeze(0).unsqueeze(0)
 
 
-def torch_to_img(in_content):
-    return in_content.detach().cpu().numpy().squeeze()
+def batch_channel_del(in_content: torch.Tensor) -> torch.Tensor:
+    return in_content.squeeze(0).squeeze(0)
 
 
 def get_params(opt_over, net, net_input, downsampler=None):
@@ -247,8 +252,8 @@ __all__ = [
     "get_noise",
     "np_to_torch",
     "torch_to_np",
-    "torch_to_img",
-    "img_to_torch",
+    "batch_channel_add",
+    "batch_channel_del",
     "get_params",
     "set_gpu",
     "get_gpu_name",

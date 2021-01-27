@@ -36,8 +36,6 @@ def structure_tensor_dips(in_content: torch.Tensor, dv: float = 1., dh: float = 
     eigenvalue2 = _term1 - _term2
     
     phi1 = torch.atan((eigenvalue1 - gvv) / gvh)
-    # phi1 = torch.atan2(eigenvalue1 - gvv, gvh)
-    # phi1 = torch.atan2(gvh, eigenvalue1 - gvv)
     # phi2 = torch.atan2(gvh, eigenvalue2 - ghh)
     phi1[torch.isnan(phi1)] = 0.
     
@@ -69,17 +67,22 @@ def directional_laplacian(in_content: torch.Tensor, theta: torch.Tensor) -> torc
 
 class Hale2D(torch.nn.Module):
     
-    def __init__(self, theta: torch.Tensor):
+    def __init__(self, directions: torch.Tensor):
+        """Directional Laplacian operator built upon directions tensor.
+        It operates on tensors of dimension BCHW.
+        
+        :param directions: tensor of dimension BCHW
+        """
         super(Hale2D, self).__init__()
         
         # orthogonal eigenvector
-        u1 = torch.cos(theta)
-        u2 = -torch.sin(theta)
+        u1 = torch.cos(directions)
+        u2 = -torch.sin(directions)
         with torch.no_grad():
             self.a = u1 * u1
             self.b = u1 * u2
             self.c = u2 * u2
-            self.dips = theta
+            self.dips = directions
     
     def forward(self, inputs):
         # gradient compontents

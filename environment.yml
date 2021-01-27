@@ -11,7 +11,7 @@ dependencies:
 - setuptools
 - cmake
 - cffi
-- pytorch=0.4
+- pytorch=1.7
 - matplotlib
 - scikit-image
 - scikit-learn
@@ -21,3 +21,4 @@ dependencies:
 - tqdm
 - pip:
     - gputil
+    - pylops

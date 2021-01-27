@@ -91,6 +91,7 @@ class HistoryReg:
         self.snr = []
         self.pcorr = []
         self.lr = []
+        self.df = []
         self.reg = []
         self.msg = "Iter %s, Loss = %.2e, DF = %.2e, REG = %.2e, SNR = %+.2f dB, PCORR = %+.2f %%"
         self.zfill = ten_digit(epochs)
@@ -99,27 +100,29 @@ class HistoryReg:
         return self.loss[item], self.reg[item], self.snr[item], self.pcorr[item]
     
     def __setitem__(self, idx, values):
-        l, r, s, p = values
+        l, d, r, s, p = values
         self.loss[idx] = l
+        self.df[idx] = d
         self.reg[idx] = r
         self.snr[idx] = s
         self.pcorr[idx] = p
     
     def append(self, values):
-        l, r, s, p = values
+        l, d, r, s, p = values
         self.loss.append(l)
+        self.df.append(d)
         self.reg.append(r)
         self.snr.append(s)
         self.pcorr.append(p)
     
     def __len__(self):
-        assert len(self.loss) == len(self.snr) == len(self.pcorr) == len(self.lr) == len(self.reg)
+        assert len(self.loss) == len(self.snr) == len(self.pcorr) == len(self.lr) == len(self.df) == len(self.reg)
         return len(self.loss)
     
     def log_message(self, idx):
         return self.msg % (str(idx + 1).zfill(self.zfill),
                            self.loss[idx],
-                           self.loss[idx]-self.reg[idx],
+                           self.df[idx],
                            self.reg[idx],
                            self.snr[idx],
                            self.pcorr[idx] * 100)

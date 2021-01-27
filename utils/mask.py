@@ -6,9 +6,10 @@ from cv2 import dilate
 def build_mask(data: np.ndarray, rate: float, regular: bool = False) -> np.ndarray:
     """
     Build a binary mask related to the subsampling operator
-
+    
+    Please, pay attention to the regular 3D case, if you need to simulate a specific geometry.
     Args:
-        data: original data cube
+        data: original data cube ordered as (t,x,[y])
         rate: rate of missing traces in [0, 1]
         regular: whether the mask has to be regular or random
 
@@ -49,7 +50,7 @@ def build_mask(data: np.ndarray, rate: float, regular: bool = False) -> np.ndarr
         mask = np.ones_like(data)
         mask[:, del_idx] = 0
     
-    return mask.reshape((nt, nx, ny))
+    return mask.reshape((nt, nx, ny)).squeeze()
 
 
 def add_rand_mask(mask, perc=0.3):
