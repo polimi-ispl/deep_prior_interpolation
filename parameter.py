@@ -102,6 +102,13 @@ def parse_arguments() -> Namespace:
     parser.add_argument('--earlystop_min_delta', type=float, required=False, default=1.,
                         help="Early stopping min percentage delta")
     
+    # POCS
+    parser.add_argument('--pocs_alpha', type=float, required=False, default=0.1,
+                        help='POCS data weighting.')
+    parser.add_argument('--pocs_thresh', type=float, required=False, default=5.,
+                        help='POCS thresholding percentage')
+    parser.add_argument('--pocs_weight', type=float, required=False,
+                        help='POCS regularization weight')
     args = parser.parse_args()
     if args.upsample == "linear":
         args.upsample = "trilinear" if args.datadim == "3d" else "bilinear"

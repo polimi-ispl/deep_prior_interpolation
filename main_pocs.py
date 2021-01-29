@@ -8,16 +8,18 @@ from termcolor import colored
 
 from parameter import parse_arguments
 from architectures import UNet, MulResUnet, MulResUnet3D, AttMulResUnet2D, PartialUNet, PartialUNet3D
-from data import extract_patches
 import utils as u
+from data import extract_patches
 
 warnings.filterwarnings("ignore")
 u.set_seed()
 
+from utils.results import OldHistory as History
+
 
 class Training:
     def __init__(self, args, outpath, dtype=torch.cuda.FloatTensor):
-        
+
         self.args = args
         self.dtype = dtype
         self.outpath = outpath
@@ -38,12 +40,11 @@ class Training:
         self.image_name = None
         self.img = None
         self.img_ = None
-        self.coarse_img_ = None
         self.mask = None
         self.mask_ = None
         self.out_best = None
-        self.reg = None
-        
+        self.out_old = None
+        self.reg_data = None
         self.zfill = u.ten_digit(self.args.epochs)
         
         # build input tensors
@@ -54,14 +55,13 @@ class Training:
         self.add_data_ = None
         self.add_data_weight = None
         self.input_list = []
-        self.reg_weight = np.linspace(0.01, 2, self.args.epochs)
-        self.reg_th = 40 - np.arange(self.args.epochs) * 0.01333
         
         # build network
         self.net = None
         self.parameters = None
         self.num_params = None
         self.optimizer = None
+        self.pocs = None
     
     def build_input(self):
         # build a noise tensor
@@ -69,7 +69,7 @@ class Training:
         self.input_ = u.get_noise(shape=(1, self.args.inputdepth) + data_shape,
                                   noise_type=self.args.noise_dist).type(self.dtype)
         self.input_ *= self.args.noise_std
-
+        
         if self.args.filter_noise_with_wavelet:
             W = u.ConvolveKernel_1d(
                 kernel=np.load(os.path.join(self.args.imgdir, 'wavelet.npy')),
@@ -77,19 +77,19 @@ class Training:
                 dtype=self.dtype,
             )
             self.input_ = W(self.input_)
-
+        
         if self.args.lowpass_fs and self.args.lowpass_fc:
             print(colored("filtering the input tensor with a low pass Butterworth...", "cyan"))
             # low pass filter input noise tensor with a 4th order butterworth
             LPF = u.LowPassButterworth(fc=self.args.lowpass_fc,
                                        ndim=self.input_.ndim - 2,
                                        fs=self.args.lowpass_fs,
-                                       ntaps=101,
+                                       ntaps=self.args.lowpass_ntaps,
                                        order=4,
                                        nfft=2 ** u.nextpow2(self.input_.shape[2]),
                                        dtype=self.dtype)
             self.input_ = LPF(self.input_)
-            
+        
         if self.args.data_forgetting_factor != 0:
             # build decimated data tensor
             data_ = self.img_ * self.mask_
@@ -107,29 +107,38 @@ class Training:
         print(colored('The input shape is %s' % str(tuple(self.input_.shape)), 'cyan'))
     
     def build_model(self, netpath: str = None):
+        if self.outchannel is None:
+            self.outchannel = self.img_.shape[1]
         if self.args.datadim in ['2d', '2.5d']:
             if self.args.net == 'unet':
                 self.net = UNet(
                     num_input_channels=self.args.inputdepth,
                     num_output_channels=self.outchannel,
                     filters=self.args.filters,
-                    upsample_mode=self.args.upsample,  # default is bilinear
-                    need_sigmoid=self.args.need_sigmoid,
+                    upsample_mode=self.args.upsample,
                     need_bias=True,
-                    act_fun=self.args.act  #
+                    act_fun=self.args.activation,
+                    last_act_fun=self.args.last_activation,
+                    dropout=self.args.dropout,
                 )
             elif self.args.net == 'attmultiunet':
                 self.net = AttMulResUnet2D(
                     num_input_channels=self.args.inputdepth,
                     num_output_channels=self.outchannel,
                     num_channels_down=self.args.filters,
-                    upsample_mode=self.args.upsample,  # default is bilinear
-                    need_sigmoid=self.args.need_sigmoid,
+                    upsample_mode=self.args.upsample,
                     need_bias=True,
-                    act_fun=self.args.act  # default is LeakyReLU).type(self.dtype)
+                    act_fun=self.args.activation,
+                    last_act_fun=self.args.last_activation,
+                    dropout=self.args.dropout,
                 )
             elif self.args.net == 'part':
-                self.net = PartialUNet(self.args.inputdepth, self.outchannel)
+                self.net = PartialUNet(self.args.inputdepth,
+                                       self.outchannel,
+                                       use_bn=True,
+                                       need_bias=True,
+                                       act_fun=self.args.activation,
+                                       dropout=self.args.dropout)
             else:
                 self.net = MulResUnet(
                     num_input_channels=self.args.inputdepth,
@@ -137,14 +146,20 @@ class Training:
                     num_channels_down=self.args.filters,
                     num_channels_up=self.args.filters,
                     num_channels_skip=self.args.skip,
-                    upsample_mode=self.args.upsample,  # default is bilinear
-                    need_sigmoid=self.args.need_sigmoid,
+                    upsample_mode=self.args.upsample,
                     need_bias=True,
-                    act_fun=self.args.act  # default is LeakyReLU
+                    act_fun=self.args.activation,
+                    last_act_fun=self.args.last_activation,
+                    dropout=self.args.dropout,
                 )
         else:
             if self.args.net == 'part':
-                self.net = PartialUNet3D(self.args.inputdepth, self.outchannel)
+                self.net = PartialUNet3D(self.args.inputdepth,
+                                         self.outchannel,
+                                         use_bn=True,
+                                         need_bias=True,
+                                         act_fun=self.args.activation,
+                                         dropout=self.args.dropout)
             elif self.args.net == 'load':
                 self.net = MulResUnet3D(
                     num_input_channels=self.args.inputdepth,
@@ -153,9 +168,10 @@ class Training:
                     num_channels_up=self.args.filters,
                     num_channels_skip=self.args.skip,
                     upsample_mode=self.args.upsample,  # default is bilinear
-                    need_sigmoid=self.args.need_sigmoid,
                     need_bias=True,
-                    act_fun=self.args.act  # default is LeakyReLU).type(self.dtype)
+                    act_fun=self.args.activation,
+                    last_act_fun=self.args.last_activation,
+                    dropout=self.args.dropout,
                 )
                 self.net.load_state_dict(torch.load(netpath))
             else:
@@ -166,9 +182,10 @@ class Training:
                     num_channels_up=self.args.filters,
                     num_channels_skip=self.args.skip,
                     upsample_mode=self.args.upsample,  # default is bilinear
-                    need_sigmoid=self.args.need_sigmoid,
                     need_bias=True,
-                    act_fun=self.args.act  # default is LeakyReLU).type(self.dtype)
+                    act_fun=self.args.activation,
+                    last_act_fun=self.args.last_activation,
+                    dropout=self.args.dropout,
                 )
         
         self.net = self.net.type(self.dtype)
@@ -194,75 +211,84 @@ class Training:
         sha = tuple(range(self.img.ndim))
         re_sha = sha[-1:] + sha[:-1]
         
-        self.img_ = u.np_to_torch(np.transpose(self.img, re_sha)[np.newaxis]).type(self.dtype)
-        self.mask_ = u.np_to_torch(np.transpose(self.mask, re_sha)[np.newaxis]).type(self.dtype)
+        self.img_ = u.np_to_torch(np.transpose(self.img, re_sha), bc_add=False).unsqueeze(0).type(self.dtype)
+        self.mask_ = u.np_to_torch(np.transpose(self.mask, re_sha), bc_add=False).unsqueeze(0).type(self.dtype)
         self.coarse_img_ = self.img_ * self.mask_
         
-        self.mask_update_fn = u.MaskUpdate(self.mask_, self.args.mask_th, self.args.mask_step)
-        
         # compute std on coarse data for skipping all-zeros patches
-        input_std = torch.std(self.coarse_img_).item()
+        input_std = torch.std(self.img_ * self.mask_).item()
         return input_std
     
     def build_regularizer(self):
-        self.reg = u.POCS(data=self.coarse_img_, mask=self.mask_, weight=1.,
-                          forward_fn=lambda x: torch.rfft(x, signal_ndim=x.ndim - 2, onesided=False),
-                          adjoint_fn=lambda x: torch.irfft(x, signal_ndim=x.ndim - 2, onesided=False)
-                          )
+        self.pocs = u.POCS(data=self.coarse_img_,
+                           mask=self.mask_,
+                           weight=self.args.pocs_alpha,
+                           thresh_perc=self.args.pocs_thresh,
+                           forward_fn=lambda x: torch.rfft(x, signal_ndim=self.img_.ndim - 2, onesided=False),
+                           adjoint_fn=lambda x: torch.irfft(x, signal_ndim=self.img_.ndim - 2, onesided=False)
+                           )
     
     def optimization_loop(self):
-        # add normal noise to the network parameters
+        # adding normal noise to the learned parameters
         if self.args.param_noise:
             for n in [x for x in self.net.parameters() if len(x.size()) in [4, 5]]:
                 n = n + n.detach().clone().normal_() * n.std() * 0.02
         
-        # add normal noise to input noise tensor
+        # adding normal noise to the input tensor
         input_ = self.input_old
         if self.args.reg_noise_std > 0:
             input_ = self.input_old + (self.add_noise_.normal_() * self.args.reg_noise_std)
         
-        # add data to input noise tensor
+        # adding data to the input noise
         if self.iiter < self.args.data_forgetting_factor:
             input_ += self.add_data_weight[self.iiter] * self.add_data_
-            self.input_list.append(u.torch_to_np(input_[0, 0]))
+            self.input_list.append(u.torch_to_np(input_, True))
         
         # compute output
         out_ = self.net(input_)
-        
+
         # compute the main loss function
         main_loss = self.loss_fn(out_ * self.mask_, self.coarse_img_)
-        
+
         # compute regularization loss
-        reg_loss = self.loss_reg_fn(out_, self.reg(out_, thresh=self.reg_th))
+        reg_data = self.pocs(out_).detach()
+        reg_loss = self.loss_reg_fn(out_, reg_data)
+        self.reg_data = u.torch_to_np(reg_data.squeeze(0), bc_del=False)
         
         # compute total loss
-        reg_w = self.reg_weight[self.iiter-2000] if self.iiter > 2000 else 0.01
-        total_loss = main_loss + reg_w * reg_loss
+        if self.args.pocs_weight is None:
+            eps = main_loss / reg_loss
+            eps.detach()
+        else:
+            eps = self.args.reg_weight
+        total_loss = main_loss + eps * reg_loss
         
         total_loss.backward()
         
         # save loss and metrics, and print log
-        l = total_loss.item()
-        r = reg_loss.item()
-        s = u.snr(output=out_, target=self.img_).item()
-        p = u.pcorr(output=out_, target=self.img_).item()
-        self.history.append((l, r, s, p))
+        self.history.append((total_loss.item(),
+                             main_loss.item(),
+                             reg_loss.item(),
+                             u.snr(output=out_, target=self.img_).item(),
+                             u.pcorr(output=out_, target=self.img_).item()))
         self.history.lr.append(self.optimizer.param_groups[0]['lr'])
         print(colored(self.history.log_message(self.iiter), 'yellow'), '\r', end='')
         
         # save the output if the loss is decreasing
         if self.iiter == 0:
             self.loss_min = self.history.loss[-1]
-            self.out_best = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
+            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).transpose(
+                (1, 2, 0))
         elif self.history.loss[-1] <= self.loss_min:
             self.loss_min = self.history.loss[-1]
-            self.out_best = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
+            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).transpose(
+                (1, 2, 0))
         else:
             pass
         
-        # save intermediate outputs
+        # saving intermediate outputs
         if self.iiter in self.iter_to_be_saved and self.iiter != 0:
-            out_img = u.torch_to_np(out_).squeeze() if out_.ndim > 4 else u.torch_to_np(out_).transpose((1, 2, 0))
+            out_img = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).transpose((1, 2, 0))
             np.save(os.path.join(self.outpath,
                                  self.image_name.split('.')[0] + '_output%s.npy' % str(self.iiter).zfill(self.zfill)),
                     out_img)
@@ -311,6 +337,7 @@ class Training:
             'image'  : self.img,
             'output' : self.out_best,
             'noise'  : self.input_list,
+            'pocs'   : self.reg_data,
         })
         
         # save the model
@@ -327,7 +354,7 @@ class Training:
         print(colored('Finished patch %s' % self.image_name, 'yellow'))
         torch.cuda.empty_cache()
         self.loss_min = None
-        self.history = u.HistoryReg(self.args.epochs)
+        self.history = u.History(self.args.epochs)
 
 
 def main() -> None:
@@ -344,7 +371,7 @@ def main() -> None:
     # get a list of patches organized as dictionaries with image, mask and name fields
     patches = extract_patches(args)
     
-    print(colored('Processing %d patch(es)' % len(patches), 'yellow'))
+    print(colored('Processing %d patches' % len(patches), 'yellow'))
     
     # instantiate a trainer
     T = Training(args, outpath)
@@ -363,7 +390,7 @@ def main() -> None:
             T.elapsed = 0.
         else:
             # TODO add the transfer learning option
-            if i == 0 or not args.start_from_prev:
+            if i == 0 or (args.start_from_prev and T.net is None):
                 T.build_model()
             T.build_input()
             T.build_regularizer()

@@ -208,8 +208,8 @@ class Training:
         sha = tuple(range(self.img.ndim))
         re_sha = sha[-1:] + sha[:-1]
         
-        self.img_ = u.np_to_torch(np.transpose(self.img, re_sha)[np.newaxis]).type(self.dtype)
-        self.mask_ = u.np_to_torch(np.transpose(self.mask, re_sha)[np.newaxis]).type(self.dtype)
+        self.img_ = u.np_to_torch(np.transpose(self.img, re_sha), bc_add=False).unsqueeze(0).type(self.dtype)
+        self.mask_ = u.np_to_torch(np.transpose(self.mask, re_sha), bc_add=False).unsqueeze(0).type(self.dtype)
         self.coarse_img_ = self.img_ * self.mask_
         
         # compute std on coarse data for skipping all-zeros patches
@@ -306,7 +306,6 @@ class Training:
             'elapsed': u.sec2time(self.elapsed),
             'outpath': self.outpath,
             'history': self.history,
-            # 'args'   : self.args,
             'mask'   : self.mask,
             'image'  : self.img,
             'output' : self.out_best,
