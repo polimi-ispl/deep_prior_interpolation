@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import init
 from .base import conv2dbn
 from torchvision import models as M
+from utils import init_weights
 
 dtype = torch.cuda.FloatTensor
 
@@ -69,19 +70,19 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
     # Input N x 512 x H/32 x W/32 --> N x cout x H x W
-    def __init__(self, cout=1):
+    def __init__(self, cout=1, upsample_mode='nearest'):
         super(Decoder, self).__init__()
         self.model = nn.Sequential(*[
             conv2dbn(512, 256, 3, 1),
-            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Upsample(scale_factor=2, mode=upsample_mode),
             conv2dbn(256, 128, 3, 1),
-            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Upsample(scale_factor=2, mode=upsample_mode),
             conv2dbn(128, 64, 3, 1),
-            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Upsample(scale_factor=2, mode=upsample_mode),
             conv2dbn(64, 32, 3, 1),
-            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Upsample(scale_factor=2, mode=upsample_mode),
             conv2dbn(32, 16, 3, 1),
-            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Upsample(scale_factor=2, mode=upsample_mode),
             conv2dbn(16, 16, 1),
             nn.Conv2d(16, cout, 3, 1, 1)
         ])
@@ -111,20 +112,6 @@ class Ensemble(nn.Module):
         
         return outputs
 
-
-if __name__ == '__main__':
-    encoder = Encoder()
-    decoder = Decoder()
-    gru = ConvGRUCell(512, 512, 3, dtype)
-    ensemble = Ensemble(encoder, gru, decoder).type(dtype)
-    # num_params = sum(np.prod(list(p.size())) for p in ensemble.parameters())
-    # print(
-    #     'the number of parameter is %f M' % (num_params * 1e-6)
-    # )
-    input = torch.rand(1, 1, 256, 256).type(dtype)
-    out = ensemble(input, 8)
-    print(out.shape)
-    print(gru.prev_state)
 
 __all__ = [
     "ConvGRUCell",

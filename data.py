@@ -97,6 +97,8 @@ def reconstruct_patches(args, return_history=False, verbose=False) -> Tuple[np.n
     elapsed = []
     history = []
     for path in glob(os.path.join('./results', args.outdir) + '/*.npy'):
+        if "output" in path:
+            continue
         try:
             out = np.load(path, allow_pickle=True).item()
         except AttributeError:

@@ -354,7 +354,7 @@ class Training:
         print(colored('Finished patch %s' % self.image_name, 'yellow'))
         torch.cuda.empty_cache()
         self.loss_min = None
-        self.history = u.History(self.args.epochs)
+        self.history = u.HistoryReg(self.args.epochs)
 
 
 def main() -> None:

@@ -1,8 +1,8 @@
 from typing import Tuple
 import torch
 from .processing import first_derivative, GaussianFilter
-
-
+    
+    
 def structure_tensor_dips(in_content: torch.Tensor, dv: float = 1., dh: float = 1,
                           smooth: float = 0.) -> Tuple[torch.Tensor, torch.Tensor]:
     """Local dip estimation through structure tensor algorithm.
@@ -14,7 +14,8 @@ def structure_tensor_dips(in_content: torch.Tensor, dv: float = 1., dh: float = 
 
     van Vliet, Lucas and Verbeek, Piet, 1995. Estimators for Orientation and Anisotropy in Digitized Images. In ASCI'95.
     """
-    
+    # TODO change axis and go for "normal" dimensionality.
+    #  The BC dimensions has to be taken into account by the calling code.
     gv = first_derivative(in_content, spacing=dv, axis=2, stencil='forward')
     gh = first_derivative(in_content, spacing=dh, axis=3, stencil='forward')
     gvv, gvh, ghh = gv * gv, gv * gh, gh * gh
@@ -29,6 +30,7 @@ def structure_tensor_dips(in_content: torch.Tensor, dv: float = 1., dh: float = 
         gvh = G(gvh)
         ghh = G(ghh)
     
+    # quadratic formula for eigenvalues
     _term1 = 0.5 * (gvv + ghh)
     _term2 = 0.5 * torch.sqrt(torch.pow(gvv - ghh, 2) + 4 * torch.pow(gvh, 2))
     
@@ -39,7 +41,9 @@ def structure_tensor_dips(in_content: torch.Tensor, dv: float = 1., dh: float = 
     # phi2 = torch.atan2(gvh, eigenvalue2 - ghh)
     phi1[torch.isnan(phi1)] = 0.
     
+    # TODO which one is better?
     anisotropy = 1 - eigenvalue2 / eigenvalue1
+    # coherence = torch.pow((eigenvalue1 - eigenvalue2) / (eigenvalue1 + eigenvalue2), 2)
     
     return phi1, anisotropy
 
