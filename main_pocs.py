@@ -63,9 +63,9 @@ class Training:
         self.num_params = None
         self.optimizer = None
     
-    def build_input(self):
+    def build_input(self,data_shape):
         # build a noise tensor
-        data_shape = self.img.shape[:-1]
+        #data_shape = self.img.shape[:-1]
         self.input_ = u.get_noise(shape=(1, self.args.inputdepth) + data_shape,
                                   noise_type=self.args.noise_dist).type(self.dtype)
         self.input_ *= self.args.noise_std

@@ -262,8 +262,8 @@ class Training:
             self.optimizer.step()
             if self.args.reduce_lr:
                 scheduler.step(loss)
-            if stopper.step(loss):  # stopper is computed on loss, as we don't have any validation metrics
-                break
+            #if stopper.step(loss):  # stopper is computed on loss, as we don't have any validation metrics
+            #    break
         
         self.elapsed = time() - start
         print(colored(u.sec2time(self.elapsed), 'yellow'))
