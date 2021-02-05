@@ -6,15 +6,13 @@ import numpy as np
 from time import time
 from termcolor import colored
 
-from parameter import parse_arguments
-from architectures import UNet, MulResUnet, MulResUnet3D, AttMulResUnet2D, PartialUNet, PartialUNet3D
+from parameter import parse_arguments, net_args_are_same
+from architectures import get_net
 import utils as u
 from data import extract_patches
 
 warnings.filterwarnings("ignore")
 u.set_seed()
-
-from utils.results import OldHistory as History
 
 
 class Training:
@@ -48,8 +46,6 @@ class Training:
         # build input tensors
         self.input_type = 'noise3d' if args.datadim == '3d' else 'noise'
         self.input_ = None
-        self.input_old = None
-        self.add_noise_ = None
         self.add_data_ = None
         self.add_data_weight = None
         self.input_list = []
@@ -99,96 +95,25 @@ class Training:
             self.add_data_ = data_
             self.add_data_weight = np.logspace(0, -4, self.args.data_forgetting_factor)
         
-        self.input_old = self.input_.detach().clone()
-        self.add_noise_ = self.input_.detach().clone()
         print(colored('The input shape is %s' % str(tuple(self.input_.shape)), 'cyan'))
     
     def build_model(self, netpath: str = None):
         if self.outchannel is None:
             self.outchannel = self.img_.shape[1]
-        if self.args.datadim in ['2d', '2.5d']:
-            if self.args.net == 'unet':
-                self.net = UNet(
-                    num_input_channels=self.args.inputdepth,
-                    num_output_channels=self.outchannel,
-                    filters=self.args.filters,
-                    upsample_mode=self.args.upsample,
-                    need_bias=True,
-                    act_fun=self.args.activation,
-                    last_act_fun=self.args.last_activation,
-                    dropout=self.args.dropout,
-                )
-            elif self.args.net == 'attmultiunet':
-                self.net = AttMulResUnet2D(
-                    num_input_channels=self.args.inputdepth,
-                    num_output_channels=self.outchannel,
-                    num_channels_down=self.args.filters,
-                    upsample_mode=self.args.upsample,
-                    need_bias=True,
-                    act_fun=self.args.activation,
-                    last_act_fun=self.args.last_activation,
-                    dropout=self.args.dropout,
-                )
-            elif self.args.net == 'part':
-                self.net = PartialUNet(self.args.inputdepth,
-                                       self.outchannel,
-                                       use_bn=True,
-                                       need_bias=True,
-                                       act_fun=self.args.activation,
-                                       dropout=self.args.dropout)
-            else:
-                self.net = MulResUnet(
-                    num_input_channels=self.args.inputdepth,
-                    num_output_channels=self.outchannel,
-                    num_channels_down=self.args.filters,
-                    num_channels_up=self.args.filters,
-                    num_channels_skip=self.args.skip,
-                    upsample_mode=self.args.upsample,
-                    need_bias=True,
-                    act_fun=self.args.activation,
-                    last_act_fun=self.args.last_activation,
-                    dropout=self.args.dropout,
-                )
+        
+        if self.args.net == "load":
+            _args = u.read_args(os.path.join('results', *netpath.split('/')[:-1], "args.txt"))
+            assert net_args_are_same(self.args, _args)
+            self.net = get_net(_args, self.outchannel).type(self.dtype)
+            self.net.load_state_dict(torch.load(os.path.join('results', netpath)))
         else:
-            if self.args.net == 'part':
-                self.net = PartialUNet3D(self.args.inputdepth,
-                                         self.outchannel,
-                                         use_bn=True,
-                                         need_bias=True,
-                                         act_fun=self.args.activation,
-                                         dropout=self.args.dropout)
-            elif self.args.net == 'load':
-                self.net = MulResUnet3D(
-                    num_input_channels=self.args.inputdepth,
-                    num_output_channels=self.outchannel,
-                    num_channels_down=self.args.filters,
-                    num_channels_up=self.args.filters,
-                    num_channels_skip=self.args.skip,
-                    upsample_mode=self.args.upsample,  # default is bilinear
-                    need_bias=True,
-                    act_fun=self.args.activation,
-                    last_act_fun=self.args.last_activation,
-                    dropout=self.args.dropout,
-                )
-                self.net.load_state_dict(torch.load(netpath))
-            else:
-                self.net = MulResUnet3D(
-                    num_input_channels=self.args.inputdepth,
-                    num_output_channels=self.outchannel,
-                    num_channels_down=self.args.filters,
-                    num_channels_up=self.args.filters,
-                    num_channels_skip=self.args.skip,
-                    upsample_mode=self.args.upsample,  # default is bilinear
-                    need_bias=True,
-                    act_fun=self.args.activation,
-                    last_act_fun=self.args.last_activation,
-                    dropout=self.args.dropout,
-                )
-        
-        self.net = self.net.type(self.dtype)
-        
-        if self.args.net != 'load':
+            self.net = get_net(self.args, self.outchannel).type(self.dtype)
             u.init_weights(self.net, self.args.inittype, self.args.initgain)
+            
+        # self.net = self.net.type(self.dtype)
+        #
+        # if self.args.net != 'load':
+        #     u.init_weights(self.net, self.args.inittype, self.args.initgain)
         self.parameters = u.get_params('net', self.net, self.input_)
         self.num_params = sum(np.prod(list(p.size())) for p in self.net.parameters())
     
@@ -210,7 +135,6 @@ class Training:
         
         self.img_ = u.np_to_torch(np.transpose(self.img, re_sha), bc_add=False).unsqueeze(0).type(self.dtype)
         self.mask_ = u.np_to_torch(np.transpose(self.mask, re_sha), bc_add=False).unsqueeze(0).type(self.dtype)
-        self.coarse_img_ = self.img_ * self.mask_
         
         # compute std on coarse data for skipping all-zeros patches
         input_std = torch.std(self.img_ * self.mask_).item()
@@ -223,10 +147,10 @@ class Training:
                 n = n + n.detach().clone().normal_() * n.std() * 0.02
         
         # adding normal noise to the input tensor
-        input_ = self.input_old
+        input_ = self.input_.detach().clone()
         if self.args.reg_noise_std > 0:
-            input_ = self.input_old + (self.add_noise_.normal_() * self.args.reg_noise_std)
-        
+            input_ += self.args.reg_noise_std * input_.clone().normal_()
+
         # adding data to the input noise
         if self.iiter < self.args.data_forgetting_factor:
             input_ += self.add_data_weight[self.iiter] * self.add_data_
@@ -236,7 +160,7 @@ class Training:
         out_ = self.net(input_)
         
         # compute the loss function
-        total_loss = self.loss_fn(out_ * self.mask_, self.coarse_img_)
+        total_loss = self.loss_fn(out_ * self.mask_, self.img_ * self.mask_)
         total_loss.backward()
         
         # save loss and metrics, and print log
@@ -250,18 +174,18 @@ class Training:
         # save the output if the loss is decreasing
         if self.iiter == 0:
             self.loss_min = self.history.loss[-1]
-            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).transpose(
-                (1, 2, 0))
+            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else \
+                u.torch_to_np(out_, False).squeeze().transpose((1, 2, 0))
         elif self.history.loss[-1] <= self.loss_min:
             self.loss_min = self.history.loss[-1]
-            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).transpose(
-                (1, 2, 0))
+            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else \
+                u.torch_to_np(out_, False).squeeze().transpose((1, 2, 0))
         else:
             pass
         
         # saving intermediate outputs
         if self.iiter in self.iter_to_be_saved and self.iiter != 0:
-            out_img = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).transpose((1, 2, 0))
+            out_img = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).squeeze().transpose((1, 2, 0))
             np.save(os.path.join(self.outpath,
                                  self.image_name.split('.')[0] + '_output%s.npy' % str(self.iiter).zfill(self.zfill)),
                     out_img)
@@ -361,9 +285,11 @@ def main() -> None:
             T.out_best = T.img * T.mask
             T.elapsed = 0.
         else:
-            # TODO add the transfer learning option
-            if i == 0 or (args.start_from_prev and T.net is None):
-                T.build_model()
+            if T.net is None:
+                if args.net == "load":
+                    T.build_model(netpath=args.netdir[i])
+                elif not args.start_from_prev:
+                    T.build_model()
             T.build_input()
             T.optimize()
         

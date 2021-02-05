@@ -26,11 +26,11 @@ def parse_arguments() -> Namespace:
                         help="Patch shape to be processed (it can handle 2D, 2.5D, 3D)")
     parser.add_argument('--patch_stride', nargs='+', type=int, required=False,
                         help="Patch stride for the extraction (it can handle 2D, 2.5D, 3D)")
-
+    
     # network design
     parser.add_argument('--net', type=str, required=False, default='multiunet',
                         choices=['multiunet', 'attmultiunet', 'part', 'multiunet3d', 'load'],
-                        help='The architecture')
+                        help='The network architecture')
     parser.add_argument('--gpu', type=int, required=False, default=-1,
                         help='GPU to use (default lowest memory usage)')
     parser.add_argument('--activation', type=str, default='LeakyReLU', required=False,
@@ -57,8 +57,8 @@ def parse_arguments() -> Namespace:
                         help='Initialization scaling factor for normal, xavier and orthogonal.')
     parser.add_argument('--savemodel', action='store_true', default=False,
                         help='Save the optimized model to disk')
-    parser.add_argument('--netdir', type=str, required=False, default='',
-                        help='Path for saving the optimized model')
+    parser.add_argument('--netdir', type=str, nargs='+', required=False,
+                        help='Path for loading the optimized network')
     # input noise
     parser.add_argument('--param_noise', action='store_false',
                         help='Add normal noise to the parameters every epoch')
@@ -125,3 +125,46 @@ def parse_arguments() -> Namespace:
         args.earlystop_patience = args.epochs
     
     return args
+
+
+def net_args_are_same(args1: Namespace, args2: Namespace) -> bool:
+    keys_must = ["datadim",
+                 "slice",
+                 "imgchannel",
+                 "patch_shape",
+                 "inputdepth",
+                 "loss",
+                 "lr",
+                 "lr_factor",
+                 "lr_thresh",
+                 "lr_patience",
+                 "reduce_lr",
+                 ]
+    keys_mild = ["net",
+                 "activation",
+                 "last_activation",
+                 "dropout",
+                 "filters",
+                 "skip",
+                 "upsample",
+                 "inittype",
+                 "initgain",
+                 ]
+    
+    errors = []
+    warnings = []
+    for k in keys_must:
+        if args1.__dict__[k] != args2.__dict__[k]:
+            errors.append(k)
+    for k in keys_mild:
+        if args1.__dict__[k] != args2.__dict__[k]:
+            warnings.append(k)
+    
+    if len(errors) != 0:
+        print("The following arguments keys have to be the same:\n\t")
+        print(", ".join(errors))
+        return False
+    if len(warnings) != 0:
+        print("\nThe following arguments are different, but they are overridden by the network loading:")
+        print("\t", ", ".join(warnings))
+    return True

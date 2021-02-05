@@ -58,10 +58,12 @@ This python project is organized as follows:
 Here we report the example tests on the 3D hyperbolic data included in the paper.
 
      ```
-     # Train from scratch
-     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_irregular_66_shot2.npy --datadim 3d --gain 40 --upsample nearest --epochs 3000
-     # Initial network using parameters from previous shot gather
-     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_irregular_66_shot1.npy --datadim 3d --gain 40 --upsample nearest --epochs 3000 --net load 
+     # Train from scratch with mask 1
+     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_irregular_66_shot1.npy --datadim 3d --gain 40 --upsample nearest --epochs 3000
+     # Train from scratch with mask 1 saving the optimized network weight
+     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_irregular_66_shot1.npy --datadim 3d --gain 40 --upsample nearest --epochs 3000 --savemodel --outpath shot1
+     # Train a network with mask 2 using as initial guess the optimization of mask 1
+     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_irregular_66_shot2.npy --datadim 3d --gain 40 --upsample nearest --epochs 3000 --net load --netdir shot1/0_model.pth
      ```
     
 #### Data preparation
