@@ -9,7 +9,6 @@ datasets/gom
 *.pdf
 *.sh
 main_rnn.py
-new3dseg.ipynb
 prepare_marmousi3d.ipynb
 pocs/
 antialiasing_f3.ipynb
@@ -25,3 +24,5 @@ gom.ipynb
 seismic_inversion_1D.ipynb
 seismic_inversion_2D.ipynb
 weak hyperbolic events.ipynb
+/dataset_marmousi3d.ipynb
+/dataset_planewaves.ipynb

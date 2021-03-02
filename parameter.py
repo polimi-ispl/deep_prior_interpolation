@@ -87,7 +87,7 @@ def parse_arguments() -> Namespace:
                         help='Learning Rate for Adam optimizer')
     parser.add_argument('--lr_factor', type=float, default=.9, required=False,
                         help='LR reduction for Plateau scheduler.')
-    parser.add_argument('--lr_thresh', type=float, default=1e-4, required=False,
+    parser.add_argument('--lr_thresh', type=float, default=1e-5, required=False,
                         help='LR threshold for Plateau scheduler.')
     parser.add_argument('--lr_patience', type=int, default=100, required=False,
                         help='LR patience for Plateau scheduler.')

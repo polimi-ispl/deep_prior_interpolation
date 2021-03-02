@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 u.set_seed()
 
 
-class Training:
+class Interpolator:
     def __init__(self, args, outpath, dtype=torch.cuda.FloatTensor):
         
         self.args = args
@@ -87,7 +87,8 @@ class Training:
             # build decimated data tensor
             data_ = self.img_ * self.mask_
             # how many times we can repeat the data in order to fill the input depth?
-            num_rep = int(np.ceil(self.args.inputdepth / self.args.imgchannel))
+            num_rep = int(np.ceil(self.input_.shape[1] / data_.shape[1]))
+            # num_rep = self.args.inputdepth if self.args.datadim == "3d" else int(np.ceil(self.args.inputdepth / self.args.imgchannel))
             # repeat data along the channel dim and crop to the input depth size
             data_ = data_.repeat([1, num_rep] + [1] * len(data_shape))[:, :self.args.inputdepth]
             # normalize data to noise std
@@ -110,11 +111,7 @@ class Training:
             self.net = get_net(self.args, self.outchannel).type(self.dtype)
             u.init_weights(self.net, self.args.inittype, self.args.initgain)
             
-        # self.net = self.net.type(self.dtype)
-        #
-        # if self.args.net != 'load':
-        #     u.init_weights(self.net, self.args.inittype, self.args.initgain)
-        self.parameters = u.get_params('net', self.net, self.input_)
+        # self.parameters = u.get_params('net', self.net, self.input_)
         self.num_params = sum(np.prod(list(p.size())) for p in self.net.parameters())
     
     def load_data(self, data):
@@ -199,7 +196,7 @@ class Training:
         Train the network. For each iteration, call the optimization loop function.
         """
         print(colored('starting optimization with ADAM...', 'cyan'))
-        self.optimizer = torch.optim.Adam(self.parameters, lr=self.args.lr)
+        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.args.lr)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min',
                                                                factor=self.args.lr_factor,
                                                                threshold=self.args.lr_thresh,
@@ -269,8 +266,8 @@ def main() -> None:
     
     print(colored('Processing %d patches' % len(patches), 'yellow'))
     
-    # instantiate a trainer
-    T = Training(args, outpath)
+    # instantiate an interpolator
+    T = Interpolator(args, outpath)
     
     # interpolation
     for i, patch in enumerate(patches):
@@ -285,10 +282,10 @@ def main() -> None:
             T.out_best = T.img * T.mask
             T.elapsed = 0.
         else:
-            if T.net is None:
+            if T.net is None or not args.start_from_prev:
                 if args.net == "load":
                     T.build_model(netpath=args.netdir[i])
-                elif not args.start_from_prev:
+                else:
                     T.build_model()
             T.build_input()
             T.optimize()
