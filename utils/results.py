@@ -6,15 +6,21 @@ from data import reconstruct_patches
 import matplotlib.pyplot as plt
 from collections import namedtuple
 from random import sample
+from glob import glob
 
 OldHistory = namedtuple("History", ['loss', 'snr', 'pcorr'])
+
+__all__ = [
+    "show_results",
+    "create_run_folder",
+]
 
 
 def show_results(res_dir: Path or str, opts: dict = None, curves: int = 0, savefig=False):
     res_dir = Path(res_dir)
     args = u.read_args(res_dir / "args.txt")
     print(args.__dict__)
-
+    
     inputs = np.load(os.path.join(args.imgdir, args.imgname), allow_pickle=True)
     
     if opts is None:
@@ -30,7 +36,7 @@ def show_results(res_dir: Path or str, opts: dict = None, curves: int = 0, savef
         inputs = inputs[:outputs.shape[0], :outputs.shape[1]]
         if inputs.ndim == 3:
             inputs = inputs[:, :, :outputs.shape[2]]
-   
+    
     # plot output volume
     if savefig:
         u.explode_volume(outputs, filename=res_dir / "output", **opts)
@@ -81,6 +87,21 @@ def show_results(res_dir: Path or str, opts: dict = None, curves: int = 0, savef
         plt.show()
 
 
-__all__ = [
-    "show_results",
-]
+def create_run_folder(outpath: str or Path):
+    outpath = os.path.abspath(outpath)
+    if not os.path.exists(outpath):
+        version = 0
+    else:
+        existing_runs = sorted(glob(outpath + "/run*"))
+        if len(existing_runs) != 0:
+            last = existing_runs[-1]
+            _, last = os.path.split(last)
+            version = int(last[3:])
+            version += 1
+        else:
+            version = 0
+    
+    outpath = os.path.join(outpath, "run%s" % str(version).zfill(3))
+    os.makedirs(outpath)
+    print("Created", outpath)
+    return outpath
