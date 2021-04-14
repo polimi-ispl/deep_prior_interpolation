@@ -4,6 +4,21 @@ from GPUtil import getFirstAvailable, getGPUs
 from termcolor import colored
 import os
 
+__all__ = [
+    "init_weights",
+    "get_noise",
+    "add_param_noise",
+    "np_to_torch",
+    "torch_to_np",
+    "batch_channel_add",
+    "batch_channel_del",
+    "get_params",
+    "set_gpu",
+    "get_gpu_name",
+    "set_seed",
+    "EarlyStopping",
+]
+
 
 def init_weights(net, init_type='normal', init_gain=0.02):
     """Initialize network weights.
@@ -15,7 +30,6 @@ def init_weights(net, init_type='normal', init_gain=0.02):
 
     We use 'xavier' for the network.
     """
-    from termcolor import colored
     
     def init_func(m):  # define a initialization function
         classname = m.__class__.__name__
@@ -40,7 +54,7 @@ def init_weights(net, init_type='normal', init_gain=0.02):
     
     if init_type != 'default':
         net.apply(init_func)
-        print(colored('parameters initialized with %s' % init_type, 'cyan'))
+        print('parameters initialized with %s' % init_type)
 
 
 def get_noise(shape: tuple or list, noise_type: str) -> torch.Tensor:
@@ -56,6 +70,14 @@ def get_noise(shape: tuple or list, noise_type: str) -> torch.Tensor:
     else:
         raise ValueError("Noise type has to be one of [u, n, c]")
     return x
+
+
+def add_param_noise(param, std: float = None):
+    for p in [x for x in param if len(x.size()) == 4]:
+        if std is None:
+            std = p.std() / 50.
+        noise = torch.zeros_like(p).normal_(std=float(std))
+        p = p + noise
 
 
 def build_noise_tensor(input_depth, spatial_size, method='noise', noise_type='u', var=1. / 10):
@@ -88,7 +110,7 @@ def np_to_torch(in_content: np.ndarray, bc_add: bool = True) -> torch.Tensor:
     Converts image in numpy.array to torch.Tensor.
     From C x W x H [0..1] to  C x W x H [0..1]
     """
-    temp = torch.from_numpy(in_content)
+    temp = torch.from_numpy(in_content.copy())
     if bc_add:
         temp = batch_channel_add(temp)
     return temp
@@ -245,18 +267,3 @@ class EarlyStopping(object):
                 self.is_better = lambda a, best: a < best - (best * self.min_delta / 100)
             if self.mode == 'max':
                 self.is_better = lambda a, best: a > best + (best * self.min_delta / 100)
-
-
-__all__ = [
-    "init_weights",
-    "get_noise",
-    "np_to_torch",
-    "torch_to_np",
-    "batch_channel_add",
-    "batch_channel_del",
-    "get_params",
-    "set_gpu",
-    "get_gpu_name",
-    "set_seed",
-    "EarlyStopping",
-]
