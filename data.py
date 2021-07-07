@@ -42,8 +42,8 @@ def _transpose_patches_25d(in_content: np.ndarray, slice: str = 'XY', adj: bool 
 
 
 def extract_patches(args) -> List[dict]:
-    original = np.load(os.path.join(args.imgdir, args.imgname), allow_pickle=True)
-    corrupted = np.load(os.path.join(args.imgdir, args.maskname), allow_pickle=True)
+    original = np.load(os.path.join(args.imgdir, args.imgname[0]), allow_pickle=True)
+    corrupted = np.load(os.path.join(args.imgdir, args.maskname[0]), allow_pickle=True)
     
     assert original.shape == corrupted.shape, "Original and Corrupted data must have the same dimension"
     assert original.ndim in [2, 3], "Data volumes have to be 2D or 3D"
