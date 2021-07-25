@@ -50,7 +50,7 @@ class History:
         self.snr = []
         self.pcorr = []
         self.lr = []
-        self.msg = "Iter %s, Loss = %.2e, SNR = %+.2f dB, PCORR = %+.2f %%"
+        self.msg = "Iter %s, Loss = %+.2e, SNR = %+2.2f dB, PCORR = %+.2f %%"
         self.zfill = ten_digit(epochs)
     
     def __getitem__(self, item):
@@ -93,7 +93,7 @@ class HistoryReg:
         self.lr = []
         self.df = []
         self.reg = []
-        self.msg = "Iter %s, Loss = %.2e, DF = %.2e, REG = %.2e, SNR = %+.2f dB, PCORR = %+.2f %%"
+        self.msg = "Iter %s, Loss = %+.2e, DF = %.2e, REG = %.2e, SNR = %+.2f dB, PCORR = %+.2f %%"
         self.zfill = ten_digit(epochs)
     
     def __getitem__(self, item):
@@ -137,9 +137,65 @@ class HistoryReg:
         return self.__str__()
 
 
+class HistoryPOCS:
+    def __init__(self, epochs):
+        self.loss = []
+        self.df = []
+        self.reg = []
+        self.eps = []
+        self.lr = []
+        self.snr = []
+        self.th = []
+        self.msg = "Iter %s, loss=%.2e, df=%.2e, reg=%.2e, eps=%.2e, SNR=%+.2fdB, th=%.2e"
+        self.zfill = ten_digit(epochs)
+    
+    def __getitem__(self, item):
+        return self.loss[item], self.reg[item], self.snr[item]
+    
+    def __setitem__(self, idx, values):
+        l, d, r, e, s, t = values
+        self.loss[idx] = l
+        self.df[idx] = d
+        self.reg[idx] = r
+        self.snr[idx] = s
+        self.eps[idx] = e
+        self.th[idx] = t
+    
+    def append(self, values):
+        l, d, r, e, s, t = values
+        self.loss.append(l)
+        self.df.append(d)
+        self.reg.append(r)
+        self.snr.append(s)
+        self.eps.append(e)
+        self.th.append(t)
+    
+    def __len__(self):
+        assert len(self.loss) == len(self.snr) == len(self.eps) == len(self.lr) == len(self.df) == len(self.reg) == len(self.th)
+        return len(self.loss)
+    
+    def log_message(self, idx):
+        return self.msg % (str(idx + 1).zfill(self.zfill),
+                           self.loss[idx],
+                           self.df[idx],
+                           self.reg[idx],
+                           self.eps[idx],
+                           self.snr[idx],
+                           self.th[idx])
+    
+    def __str__(self):
+        return "Loss : " + str(self.loss) + \
+               "\nReg  : " + str(self.reg) + \
+               "\nSNR  : " + str(self.snr)
+    
+    def __repr__(self):
+        return self.__str__()
+
+
 __all__ = [
     'snr',
     'pcorr',
     'History',
     'HistoryReg',
+    'HistoryPOCS',
 ]

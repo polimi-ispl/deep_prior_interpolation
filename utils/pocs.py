@@ -69,7 +69,7 @@ class POCS(torch.nn.Module):
     def __str__(self):
         fn = str(self.forward_fn).replace('<function ', '')
         fn = fn.split('_')[0]
-        return "POCS(weight=%f, fn=%s)" % (self.weight, fn)
+        return "POCS(weight=%.3f, fn=%s)" % (self.weight, fn)
     
     def forward(self, x, thresh: float = None):
         _ = self.forward_fn(x)
