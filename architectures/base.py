@@ -94,27 +94,24 @@ def concat(inputs):
     return torch.cat(inputs_, dim=1)
 
 
-def act(act_fun='LeakyReLU'):
+def get_activation(act_fun: str = 'LeakyReLU'):
     """
     Either string defining an activation function or module (e.g. nn.ReLU)
     """
-    if isinstance(act_fun, str):
-        if act_fun == 'LeakyReLU':
-            return nn.LeakyReLU(0.2, inplace=True)
-        elif act_fun == 'ELU':
-            return nn.ELU()
-        elif act_fun == 'none':
-            return nn.Sequential()
-        elif act_fun == 'ReLU':
-            return nn.ReLU()
-        elif act_fun == 'Tanh':
-            return nn.Tanh()
-        elif act_fun == 'Sigmoid':
-            return nn.Sigmoid()
-        else:
-            assert False
+    if act_fun == 'LeakyReLU':
+        return nn.LeakyReLU(0.2, inplace=True)
+    elif act_fun == 'ELU':
+        return nn.ELU()
+    elif act_fun == 'none':
+        return nn.Sequential()
+    elif act_fun == 'ReLU':
+        return nn.ReLU()
+    elif act_fun == 'Tanh':
+        return nn.Tanh()
+    elif act_fun == 'Sigmoid':
+        return nn.Sigmoid()
     else:
-        return act_fun()
+        raise NotImplementedError("unkwown activation function.")
 
 
 def conv(in_f, out_f, kernel_size, stride=1, bias=True):
@@ -165,7 +162,7 @@ def conv_mod(in_f, out_f, kernel_size, stride=1, bias=True, pad='zero', downsamp
 def conv2dbn(in_f, out_f, kernel_size, stride=1, bias=True, act_fun='LeakyReLU'):
     block = conv(in_f, out_f, kernel_size, stride=stride, bias=bias)
     block.add(nn.BatchNorm2d(out_f))
-    block.add(act(act_fun))
+    block.add(get_activation(act_fun))
     return block
 
 
@@ -215,7 +212,7 @@ def conv3dbn(in_f, out_f, kernel_size=3, stride=1, bias=True, act_fun='LeakyReLU
     block = []
     block.append(conv3d(in_f, out_f, kernel_size, stride=stride, bias=bias))
     block.append(nn.BatchNorm3d(out_f))
-    block.append(act(act_fun))
+    block.append(get_activation(act_fun))
     return nn.Sequential(*block)
 
 

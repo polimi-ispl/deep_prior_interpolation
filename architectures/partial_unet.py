@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .base import act
+from .base import get_activation
 
 
 class Partial2DConv(nn.Module):
@@ -36,7 +36,7 @@ class Partial2DConv(nn.Module):
             param.requires_grad = False
         
         self.bn = nn.BatchNorm2d(out_channels) if bn else None
-        self.act = act(act_fun)
+        self.act = get_activation(act_fun)
         self.dr = nn.Dropout2d(drop)
     
     def forward(self, input_x, mask):
@@ -113,7 +113,7 @@ class Partial3DConv(nn.Module):
             param.requires_grad = False
         
         self.bn = nn.BatchNorm3d(out_channels) if bn else None
-        self.act = act(act_fun)
+        self.act = get_activation(act_fun)
         self.dr = nn.Dropout2d(drop)
     
     def forward(self, input_x, mask):

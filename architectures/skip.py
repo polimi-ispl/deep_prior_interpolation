@@ -1,23 +1,69 @@
 from torch import nn
-from .base import Concat3D, Concat, act, conv3d_mod, conv_mod
+from .base import Concat3D, Concat, get_activation, conv3d_mod, conv_mod
 
 
-def Skip(num_input_channels=2,
-         num_output_channels=3,
-         num_channels_down=[16, 32, 64, 128, 128],
-         num_channels_up=[16, 32, 64, 128, 128],
-         num_channels_skip=[4, 4, 4, 4, 4],
-         filter_size_down=3,
-         filter_size_up=3,
-         filter_skip_size=1,
-         last_act_fun=None,
-         need_bias=True,
-         pad='zero',
-         upsample_mode='nearest',
-         downsample_mode='stride',
-         act_fun='LeakyReLU',
-         need1x1_up=True,
-         dropout=0.):
+class Skip(nn.Module):
+    def __init__(self,
+                 num_input_channels=2,
+                 num_output_channels=3,
+                 num_channels_down=[16, 32, 64, 128, 128],
+                 num_channels_up=[16, 32, 64, 128, 128],
+                 num_channels_skip=[4, 4, 4, 4, 4],
+                 filter_size_down=3,
+                 filter_size_up=3,
+                 filter_skip_size=1,
+                 last_act_fun=None,
+                 need_bias=True,
+                 pad='zero',
+                 upsample_mode='nearest',
+                 downsample_mode='stride',
+                 act_fun='LeakyReLU',
+                 need1x1_up=True,
+                 dropout=0.
+                 ):
+        
+        super(Skip, self).__init__()
+        
+        self.model = _build_skip(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            num_channels_down=num_channels_down,
+            num_channels_up=num_channels_up,
+            num_channels_skip=num_channels_skip,
+            filter_size_down=filter_size_down,
+            filter_size_up=filter_size_up,
+            filter_skip_size=filter_skip_size,
+            last_act_fun=last_act_fun,
+            need_bias=need_bias,
+            pad=pad,
+            upsample_mode=upsample_mode,
+            downsample_mode=downsample_mode,
+            act_fun=act_fun,
+            need1x1_up=need1x1_up,
+            dropout=dropout)
+    
+        self.parameters = self.model.parameters
+        
+    def forward(self, x):
+        return self.model(x)
+        
+
+def _build_skip(num_input_channels=2,
+                num_output_channels=3,
+                num_channels_down=[16, 32, 64, 128, 128],
+                num_channels_up=[16, 32, 64, 128, 128],
+                num_channels_skip=[4, 4, 4, 4, 4],
+                filter_size_down=3,
+                filter_size_up=3,
+                filter_skip_size=1,
+                last_act_fun=None,
+                need_bias=True,
+                pad='zero',
+                upsample_mode='nearest',
+                downsample_mode='stride',
+                act_fun='LeakyReLU',
+                need1x1_up=True,
+                dropout=0.):
 
     assert len(num_channels_down) == len(num_channels_up) == len(num_channels_skip)
     
@@ -56,18 +102,18 @@ def Skip(num_input_channels=2,
         if num_channels_skip[i] != 0:
             skip.add(conv_mod(input_depth, num_channels_skip[i], filter_skip_size, bias=need_bias, pad=pad))
             skip.add(nn.BatchNorm2d(num_channels_skip[i]))
-            skip.add(act(act_fun))
+            skip.add(get_activation(act_fun))
             skip.add(nn.Dropout2d(dropout))
             
         deeper.add(conv_mod(input_depth, num_channels_down[i], filter_size_down[i], 2, bias=need_bias, pad=pad,
                             downsample_mode=downsample_mode[i]))
         deeper.add(nn.BatchNorm2d(num_channels_down[i]))
-        deeper.add(act(act_fun))
+        deeper.add(get_activation(act_fun))
         deeper.add(nn.Dropout2d(dropout))
         
         deeper.add(conv_mod(num_channels_down[i], num_channels_down[i], filter_size_down[i], bias=need_bias, pad=pad))
         deeper.add(nn.BatchNorm2d(num_channels_down[i]))
-        deeper.add(act(act_fun))
+        deeper.add(get_activation(act_fun))
         deeper.add(nn.Dropout2d(dropout))
         
         deeper_main = nn.Sequential()
@@ -84,13 +130,13 @@ def Skip(num_input_channels=2,
         model_tmp.add(
             conv_mod(num_channels_skip[i] + k, num_channels_up[i], filter_size_up[i], 1, bias=need_bias, pad=pad))
         model_tmp.add(nn.BatchNorm2d(num_channels_up[i]))
-        model_tmp.add(act(act_fun))
+        model_tmp.add(get_activation(act_fun))
         model_tmp.add(nn.Dropout2d(dropout))
         
         if need1x1_up:
             model_tmp.add(conv_mod(num_channels_up[i], num_channels_up[i], 1, bias=need_bias, pad=pad))
             model_tmp.add(nn.BatchNorm2d(num_channels_up[i]))
-            model_tmp.add(act(act_fun))
+            model_tmp.add(get_activation(act_fun))
             model_tmp.add(nn.Dropout2d(dropout))
 
         input_depth = num_channels_down[i]
@@ -100,7 +146,7 @@ def Skip(num_input_channels=2,
     if isinstance(last_act_fun, str) and last_act_fun.lower() == 'none':
         last_act_fun = None
     if last_act_fun is not None:
-        model.add(act(last_act_fun))
+        model.add(get_activation(last_act_fun))
     
     return model
 
@@ -159,18 +205,18 @@ def Skip3D(num_input_channels=2,
         if num_channels_skip[i] != 0:
             skip.add(conv3d_mod(input_depth, num_channels_skip[i], filter_skip_size, bias=need_bias, pad=pad))
             skip.add(nn.BatchNorm3d(num_channels_skip[i]))
-            skip.add(act(act_fun))
+            skip.add(get_activation(act_fun))
             skip.add(nn.Dropout3d(dropout))
         
         deeper.add(conv3d_mod(input_depth, num_channels_down[i], filter_size_down[i], 2, bias=need_bias, pad=pad,
                               downsample_mode=downsample_mode[i]))
         deeper.add(nn.BatchNorm3d(num_channels_down[i]))
-        deeper.add(act(act_fun))
+        deeper.add(get_activation(act_fun))
         deeper.add(nn.Dropout3d(dropout))
         
         deeper.add(conv3d_mod(num_channels_down[i], num_channels_down[i], filter_size_down[i], bias=need_bias, pad=pad))
         deeper.add(nn.BatchNorm3d(num_channels_down[i]))
-        deeper.add(act(act_fun))
+        deeper.add(get_activation(act_fun))
         deeper.add(nn.Dropout3d(dropout))
 
         deeper_main = nn.Sequential()
@@ -187,13 +233,13 @@ def Skip3D(num_input_channels=2,
         model_tmp.add(
             conv3d_mod(num_channels_skip[i] + k, num_channels_up[i], filter_size_up[i], 1, bias=need_bias, pad=pad))
         model_tmp.add(nn.BatchNorm3d(num_channels_up[i]))
-        model_tmp.add(act(act_fun))
+        model_tmp.add(get_activation(act_fun))
         model_tmp.add(nn.Dropout3d(dropout))
 
         if need1x1_up:
             model_tmp.add(conv3d_mod(num_channels_up[i], num_channels_up[i], 1, bias=need_bias, pad=pad))
             model_tmp.add(nn.BatchNorm3d(num_channels_up[i]))
-            model_tmp.add(act(act_fun))
+            model_tmp.add(get_activation(act_fun))
             model_tmp.add(nn.Dropout3d(dropout))
 
         input_depth = num_channels_down[i]
@@ -203,7 +249,7 @@ def Skip3D(num_input_channels=2,
     if isinstance(last_act_fun, str) and last_act_fun.lower() == 'none':
         last_act_fun = None
     if last_act_fun is not None:
-        model.add(act(last_act_fun))
+        model.add(get_activation(last_act_fun))
     
     return model
 

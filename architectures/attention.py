@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 from collections import OrderedDict
-from .base import concat, act, conv, conv2dbn
-from .mulresunet import MultiResBlock
+from .base import concat, get_activation, conv, conv2dbn
+from .mulresunet import Block2d
 
 
 class ChannelGate(nn.Module):
@@ -218,8 +218,8 @@ class AttMulResUnet2D(nn.Module):
         input_depths = [num_input_channels]
         
         for i in range(n_scales):
-            mrb = MultiResBlock(num_channels_down[i], input_depths[-1],
-                                alpha=alpha, act_fun=act_fun, bias=need_bias, drop=dropout)
+            mrb = Block2d(num_channels_down[i], input_depths[-1],
+                          alpha=alpha, act_fun=act_fun, bias=need_bias, drop=dropout)
             input_depths.append(mrb.out_dim)
             setattr(self, 'down_mb%d' % (i + 1), mrb)
         
@@ -227,11 +227,11 @@ class AttMulResUnet2D(nn.Module):
             setattr(self, 'down%d' % i, nn.Sequential(*[
                 conv(input_depths[i], input_depths[i], 3, stride=2, bias=need_bias),
                 nn.BatchNorm2d(input_depths[i]),
-                act(act_fun),
+                get_activation(act_fun),
                 nn.Dropout2d(dropout),
             ]))
-            mrb = MultiResBlock(num_channels_down[-(i + 1)], input_depths[-i] + input_depths[-(i + 1)],
-                                alpha=alpha, act_fun=act_fun, bias=need_bias, drop=dropout)
+            mrb = Block2d(num_channels_down[-(i + 1)], input_depths[-i] + input_depths[-(i + 1)],
+                          alpha=alpha, act_fun=act_fun, bias=need_bias, drop=dropout)
             setattr(self, 'up_mb%d' % i, mrb)
             setattr(self, 'att%d' % i,
                     GridAttentionBlock(input_depths[-i],
@@ -243,7 +243,7 @@ class AttMulResUnet2D(nn.Module):
         if last_act_fun is not None:
             self.outconv = nn.Sequential(*[
                 conv(input_depths[1], num_output_channels, 1, 1, bias=need_bias),
-                act(last_act_fun)])
+                get_activation(last_act_fun)])
         else:
             self.outconv = conv(input_depths[1], num_output_channels, 1, 1, bias=need_bias)
     

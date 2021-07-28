@@ -4,12 +4,13 @@ from .unet import *
 from .attention import *
 from .mulresunet import *
 from .skip import *
+from .optimizers import *
 
 
 def get_net(args, outchannel=1):
     if args.datadim in ['2d', '2.5d']:
         if args.net == 'unet':
-            net = UNet(
+            net = UNetMod(
                 num_input_channels=args.inputdepth,
                 num_output_channels=outchannel,
                 filters=args.filters,

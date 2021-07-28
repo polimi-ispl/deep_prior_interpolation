@@ -73,12 +73,12 @@ def get_noise(shape: tuple or list, noise_type: str) -> torch.Tensor:
 
 
 def add_param_noise(param, std: float = None):
-    for p in [x for x in param if len(x.size()) == 4]:
+    for p in param:
         if std is None:
-            std = p.std() / 50.
-        noise = torch.zeros_like(p).normal_(std=float(std))
-        p = p + noise
-
+            std = float(p.std()) / 50.
+        noise = p.data.new(p.data.size()).normal_(mean=0, std=std)
+        p.data.add_(noise)
+        
 
 def build_noise_tensor(input_depth, spatial_size, method='noise', noise_type='u', var=1. / 10):
     """Returns a pytorch.Tensor of size (1 x `input_depth` x `spatial_size[0]` x `spatial_size[1]`)
