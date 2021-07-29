@@ -4,14 +4,13 @@ channels:
 - defaults
 dependencies:
 - jupyter
-- nb_conda
 - numpy
 - pyyaml
 - mkl
 - setuptools
 - cmake
 - cffi
-- pytorch=1.7
+- pytorch>=1.7
 - matplotlib
 - scikit-image
 - scikit-learn
@@ -19,6 +18,7 @@ dependencies:
 - termcolor
 - pillow
 - tqdm
+- opencv
 - pip:
     - gputil
     - pylops
