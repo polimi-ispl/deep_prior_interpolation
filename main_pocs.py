@@ -15,11 +15,11 @@ warnings.filterwarnings("ignore")
 u.set_seed()
 
 
-class Training:
-    def __init__(self, args, outpath, dtype=torch.cuda.FloatTensor):
+class Interpolator:
+    def __init__(self, args, outpath):
 
         self.args = args
-        self.dtype = dtype
+        self.dtype = torch.FloatTensor if args.gpu is None else torch.cuda.FloatTensor
         self.outpath = outpath
         if args.loss == 'mse':
             self.loss_fn = torch.nn.MSELoss().type(self.dtype)
@@ -258,7 +258,7 @@ class Training:
         Save the results, the model (if asked) and some info to disk in a .npy file.
         """
         np.save(os.path.join(self.outpath, self.image_name + '_run.npy'), {
-            'device' : u.get_gpu_name(int(os.environ["CUDA_VISIBLE_DEVICES"])),
+            'device' : u.get_gpu_name(),
             'elapsed': u.sec2time(self.elapsed),
             'outpath': self.outpath,
             'history': self.history,
@@ -303,7 +303,7 @@ def main() -> None:
     print(colored('Processing %d patches' % len(patches), 'yellow'))
     
     # instantiate a trainer
-    T = Training(args, outpath)
+    T = Interpolator(args, outpath)
     
     # interpolation
     for i, patch in enumerate(patches):

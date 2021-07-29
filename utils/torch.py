@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 
-def init_weights(net, init_type='normal', init_gain=0.02):
+def init_weights(net, init_type='normal', init_gain=0.02, verbose=False):
     """Initialize network weights.
 
     Parameters:
@@ -54,7 +54,8 @@ def init_weights(net, init_type='normal', init_gain=0.02):
     
     if init_type != 'default':
         net.apply(init_func)
-        print('parameters initialized with %s' % init_type)
+        if verbose:
+            print('parameters initialized with %s' % init_type)
 
 
 def get_noise(shape: tuple or list, noise_type: str) -> torch.Tensor:
@@ -168,7 +169,7 @@ def set_gpu(id=-1):
     """
     if id is None:
         # CPU only
-        print(colored('GPU not selected', 'yellow'))
+        print(colored('GPU not selected, switching to CPU', 'yellow'))
     else:
         # -1 for automatic choice
         device = id if id != -1 else getFirstAvailable(order='memory')[0]
@@ -184,10 +185,15 @@ def set_gpu(id=-1):
         os.environ["CUDA_VISIBLE_DEVICES"] = str(device)
 
 
-def get_gpu_name(id: int) -> str:
-    name = getGPUs()[id].name
-    return '%s (%d)' % (name, id)
-
+def get_gpu_name(id: int = None) -> str:
+    try:
+        if id is None:
+            id = int(os.environ["CUDA_VISIBLE_DEVICES"])
+        name = getGPUs()[id].name
+        return '%s (%d)' % (name, id)
+    except KeyError:
+        return "CPU"
+    
 
 def set_seed(seed=0):
     np.random.seed(seed)

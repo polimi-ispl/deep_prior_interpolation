@@ -31,7 +31,7 @@ def parse_arguments() -> Namespace:
     parser.add_argument('--net', type=str, required=False, default='multiunet',
                         choices=['multiunet', 'attmultiunet', 'part', 'unet', 'load'],
                         help='The network architecture')
-    parser.add_argument('--gpu', type=int, required=False, default=-1,
+    parser.add_argument('--gpu', type=int, required=False,
                         help='GPU to use (default lowest memory usage)')
     parser.add_argument('--activation', type=str, default='LeakyReLU', required=False,
                         choices=['LeakyReLU', 'ReLU', 'ELU', 'Tanh', 'Sigmoid'],
