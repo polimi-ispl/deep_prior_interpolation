@@ -206,18 +206,18 @@ class Interpolator:
         # save the output if the loss is decreasing
         if self.iiter == 0:
             self.loss_min = self.history.loss[-1]
-            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).squeeze().transpose(
-                (1, 2, 0))
+            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else \
+                u.torch_to_np(out_, False)[0].transpose((1, 2, 0))
         elif self.history.loss[-1] <= self.loss_min:
             self.loss_min = self.history.loss[-1]
-            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).squeeze().transpose(
-                (1, 2, 0))
+            self.out_best = u.torch_to_np(out_, True) if out_.ndim > 4 else \
+                u.torch_to_np(out_, False)[0].transpose((1, 2, 0))
         else:
             pass
         
         # saving intermediate outputs
         if self.iiter in self.iter_to_be_saved and self.iiter != 0:
-            out_img = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False).squeeze().transpose((1, 2, 0))
+            out_img = u.torch_to_np(out_, True) if out_.ndim > 4 else u.torch_to_np(out_, False)[0].transpose((1, 2, 0))
             np.save(os.path.join(self.outpath,
                                  self.image_name.split('.')[0] + '_output%s.npy' % str(self.iiter).zfill(self.zfill)),
                     out_img)

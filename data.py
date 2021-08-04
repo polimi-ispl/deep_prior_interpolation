@@ -55,7 +55,7 @@ def extract_patches(args) -> List[dict]:
 
     pe = _get_patch_extractor(original.shape, args.patch_shape, args.patch_stride, args.datadim, args.imgchannel)
     
-    if args.datadim == "2.5d":
+    if args.datadim == "2.5d" or (args.datadim == "2d" and pe.ndim == 3):
         final_shape = (-1,) + pe.dim
     else:
         final_shape = (-1,) + pe.dim + (1,)
