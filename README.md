@@ -92,3 +92,7 @@ We are glad you want to try our method on your data! To minimize the effort, kee
  "Deep Prior Based Unsupervised Reconstruction of Irregularly Sampled Seismic Data",
  in *IEEE Geoscience and Remote Sensing Letters (GRSL)*, 2020.
  [DOI](https://doi.org/10.1109/LGRS.2020.3044455)
+ 4. F. Picetti, V. Lipari, P. Bestagini, and S. Tubaro.
+ "Anti-Aliasing Add-On For Deep Prior Seismic Data Interpolation",
+ in *IEEE International Conference on Image Processing (ICIP)*, 2021.
+ [DOI](https://doi.org/10.1109/ICIP42928.2021.9506749)
