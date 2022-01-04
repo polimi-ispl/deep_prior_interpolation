@@ -93,7 +93,7 @@ def parse_arguments() -> Namespace:
                         help='LR patience for Plateau scheduler.')
     parser.add_argument('--save_every', type=int, required=False,
                         help='Number of epochs every which to save the results')
-    parser.add_argument('--w', action='store_true', default=False,
+    parser.add_argument('--start_from_prev', action='store_true', default=False,
                         help='Start training from previous patch')
     parser.add_argument('--reduce_lr', action='store_true', default=False,
                         help='Use ReduceLROnPlateau scheduler')
@@ -123,6 +123,9 @@ def parse_arguments() -> Namespace:
     
     if args.earlystop_patience is None:
         args.earlystop_patience = args.epochs
+        
+    if len(args.netdir) != 0:
+        args.net = "load"
     
     return args
 
