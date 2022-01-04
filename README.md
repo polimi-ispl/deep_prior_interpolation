@@ -57,14 +57,14 @@ This python project is organized as follows:
 ## Usage Examples
 Here we report the example tests on the 3D hyperbolic data included in the paper.
 
-     ```
-     # Train from scratch with mask 1
-     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_irregular_66_shot1.npy --datadim 3d --gain 40 --upsample nearest --epochs 3000
-     # Train from scratch with mask 1 saving the optimized network weight
-     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_irregular_66_shot1.npy --datadim 3d --gain 40 --upsample nearest --epochs 3000 --savemodel --outpath shot1
-     # Train a network with mask 2 using as initial guess the optimization of mask 1
-     python main.py --imgname hyperbolic3d.npy --maskname hyperbolic3d_irregular_66_shot2.npy --datadim 3d --gain 40 --upsample nearest --epochs 3000 --net load --netdir shot1/0_model.pth
-     ```
+    ```bash
+    # solve mask 1 saving the CNN weights
+    python main.py --imgdir ./datasets/hyperbolic3d --imgname original.npy --maskname random66_shot1.npy --datadim 3d --gain 40 --upsample linear --epochs 3000 --savemodel --outdir TL/shot1
+    # solve mask 2 from scratch
+    python main.py --imgdir ./datasets/hyperbolic3d --imgname original.npy --maskname random66_shot2.npy --datadim 3d --gain 40 --upsample linear --epochs 3000 --outdir TL/shot2_scratch
+    # solve mask 2 using as initial guess the CNN weights of mask 1
+    python main.py --imgdir ./datasets/hyperbolic3d --imgname original.npy --maskname random66_shot2.npy --datadim 3d --gain 40 --upsample linear --epochs 3000 --outdir TL/shot2_transfer --net load --netdir TL/shot1/model.pth
+    ```
     
 #### Data preparation
 We are glad you want to try our method on your data! To minimize the effort, keep in mind that:
