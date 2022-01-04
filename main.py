@@ -102,11 +102,12 @@ class Interpolator:
         if self.outchannel is None:
             self.outchannel = self.img_.shape[1]
         
-        if self.args.net == "load":
-            _args = u.read_args(os.path.join('results', *netpath.split('/')[:-1], "args.txt"))
+        if len(self.args.netdir) != 0:
+            _args = u.read_args(os.path.join('./results', *netpath.split('/')[:-1], "args.txt"))
             assert net_args_are_same(self.args, _args)
             self.net = get_net(_args, self.outchannel).type(self.dtype)
-            self.net.load_state_dict(torch.load(os.path.join('results', netpath)))
+            self.net.load_state_dict(torch.load(os.path.join('./results', netpath)))
+            print(colored("Network loaded from %s" % os.path.join('./results', netpath), "cyan"))
         else:
             self.net = get_net(self.args, self.outchannel).type(self.dtype)
             u.init_weights(self.net, self.args.inittype, self.args.initgain)
@@ -272,10 +273,10 @@ def main() -> None:
     # interpolation
     for i, patch in enumerate(patches):
         
-        print(colored('\nThe data shape is %s' % str(patch['image'].shape), 'cyan'))
+        print(colored('\nThe data shape is %s, ' % str(patch['image'].shape), 'cyan'), end="")
         
         std = T.load_data(patch)
-        print(colored('the std of coarse data is %.2e, ' % std, 'cyan'), end="")
+        print(colored('the std of coarse data is %.2e' % std, 'cyan'))
         
         if np.isclose(std, 0., atol=1e-12):  # all the data are corrupted
             print(colored('skipping...', 'cyan'))
@@ -283,7 +284,7 @@ def main() -> None:
             T.elapsed = 0.
         else:
             if T.net is None or not args.start_from_prev:
-                if args.net == "load":
+                if len(args.netdir) != 0:
                     T.build_model(netpath=args.netdir[i])
                 else:
                     T.build_model()

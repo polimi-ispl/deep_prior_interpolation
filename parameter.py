@@ -124,8 +124,8 @@ def parse_arguments() -> Namespace:
     if args.earlystop_patience is None:
         args.earlystop_patience = args.epochs
         
-    if len(args.netdir) != 0:
-        args.net = "load"
+    # if len(args.netdir) != 0:
+    #     args.net = "load"
     
     return args
 
