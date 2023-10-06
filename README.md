@@ -42,7 +42,7 @@ The architecture we propose is the MultiResolution UNet:
 The code mainly relies on top of pytorch. You can recreate our conda environment named `dpi`
 (acronym for "deep prior interpolation") through
 ```
-conda create env -f environment.yml
+conda env create -f environment.yml
 ``` 
 Then, activate it with `source activate dpi` before running any example.<br>
 **NOTE**: if you have initialized conda through `conda init`, use `conda activate dpi` instead.
