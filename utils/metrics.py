@@ -5,7 +5,7 @@ from utils.generic import ten_digit
 
 def snr(output: np.ndarray or torch.Tensor,
         target: np.ndarray or torch.Tensor
-        ) -> np.float or torch.Tensor:
+        ) -> float or torch.Tensor:
     """Compute the Signal-to-Noise Ratio in dB"""
     
     if target.shape != output.shape:
@@ -19,7 +19,7 @@ def snr(output: np.ndarray or torch.Tensor,
 
 def pcorr(output: np.ndarray or torch.Tensor,
           target: np.ndarray or torch.Tensor
-          ) -> np.float or torch.Tensor:
+          ) -> float or torch.Tensor:
     """
     Compute the Pearson Correlation Coefficient
     https://en.wikipedia.org/wiki/Pearson_correlation_coefficient
