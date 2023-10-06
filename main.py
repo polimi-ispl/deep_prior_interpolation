@@ -55,6 +55,7 @@ class Interpolator:
         self.parameters = None
         self.num_params = None
         self.optimizer = None
+        self.netdir = None
     
     def build_input(self):
         # build a noise tensor
